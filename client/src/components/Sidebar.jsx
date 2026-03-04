@@ -37,7 +37,7 @@ function ClickableItem({ label, color: itemColor, onClick }) {
   );
 }
 
-export default function Sidebar({ open, onToggle, nodes = [], edges = [], onReset, metrics, onNodeFocus, onGapClick }) {
+export default function Sidebar({ open, onToggle, nodes = [], edges = [], onReset, metrics, onNodeFocus, onGapClick, archives = [], onNewCanvas, onLoadCanvas }) {
   // Count objects by type
   const typeCounts = {};
   nodes.forEach((n) => {
@@ -240,15 +240,12 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
               </>
             )}
 
-            {/* Session controls */}
-            <div style={{ marginTop: 24, color: '#8a7460', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11 }}>
-              Session
-            </div>
+            {/* Canvas controls */}
+            <div style={sectionHeader}>Canvas</div>
             <button
               onClick={() => {
-                if (nodes.length === 0 || confirm('Clear all objects and connections? This cannot be undone.')) {
-                  onReset?.();
-                }
+                const name = prompt('Name this canvas (optional):');
+                if (name !== null) onNewCanvas?.(name || undefined);
               }}
               style={{
                 background: 'rgba(232, 196, 154, 0.08)',
@@ -258,10 +255,65 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
                 padding: '8px 12px',
                 cursor: 'pointer',
                 fontSize: 12,
+                width: '100%',
+                textAlign: 'left',
               }}
             >
-              End Session
+              New Canvas
             </button>
+
+            {archives.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 10, color: '#8a7460', marginBottom: 4 }}>Previous canvases</div>
+                {archives.map((a) => (
+                  <div
+                    key={a.id}
+                    onClick={() => {
+                      if (confirm(`Load "${a.name}"? Current canvas will be archived.`)) {
+                        onLoadCanvas?.(a.id);
+                      }
+                    }}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '5px 0',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(232, 196, 154, 0.06)',
+                    }}
+                  >
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      <div style={{ fontSize: 11, color: '#e8c49a' }}>{a.name}</div>
+                      <div style={{ fontSize: 10, color: '#5a4e42' }}>
+                        {a.objectCount} objects · {new Date(a.archivedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Reset (danger zone) */}
+            <div style={{ marginTop: 16 }}>
+              <button
+                onClick={() => {
+                  if (nodes.length === 0 || confirm('Clear everything? This cannot be undone.')) {
+                    onReset?.();
+                  }
+                }}
+                style={{
+                  background: 'none',
+                  border: '1px solid rgba(232, 160, 138, 0.15)',
+                  borderRadius: 6,
+                  color: '#8a7460',
+                  padding: '6px 12px',
+                  cursor: 'pointer',
+                  fontSize: 11,
+                }}
+              >
+                Reset Canvas
+              </button>
+            </div>
           </div>
         </div>
       )}

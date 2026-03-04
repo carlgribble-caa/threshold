@@ -114,6 +114,7 @@ function Flow() {
   const [showSuggestion, setShowSuggestion] = useState(false);
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [reasoningActive, setReasoningActive] = useState(null); // { operation, label } or null
+  const [archives, setArchives] = useState([]);
   const { screenToFlowPosition, setCenter, getZoom, getNodes } = useReactFlow();
   const saveTimers = useRef({});
   const metricsTimer = useRef(null);
@@ -253,9 +254,10 @@ function Flow() {
       fetchMetrics();
     });
 
-    // Load goal and suggestion
+    // Load goal, suggestion, and archives
     fetch('/api/goal').then(r => r.json()).then(g => setGoal(g)).catch(() => {});
     fetch('/api/suggestion').then(r => r.json()).then(s => setSuggestion(s)).catch(() => {});
+    fetch('/api/sessions/archives').then(r => r.json()).then(setArchives).catch(() => {});
   }, [setNodes, setEdges, fetchMetrics]);
 
   // When dialogue produces new objects, add them to orbit
@@ -415,6 +417,98 @@ function Flow() {
       })
       .catch(() => {});
   }, [setNodes, setEdges]);
+
+  // Reload all canvas state from server (used after archive load)
+  const reloadCanvas = useCallback(() => {
+    Promise.all([
+      fetch('/api/objects').then((r) => r.json()).catch(() => []),
+      fetch('/api/graph').then((r) => r.json()).catch(() => ({ edges: [] })),
+    ]).then(([objects, graph]) => {
+      const restored = objects
+        .filter((o) => o.status === 'crystallized')
+        .map((o) => ({
+          id: o.id,
+          type: 'object',
+          position: o.position || { x: 0, y: 0 },
+          data: {
+            label: o.label,
+            type: o.type,
+            status: 'crystallized',
+            summary: o.summary,
+            confidence: o.confidence,
+          },
+        }));
+      setNodes(restored);
+
+      if (graph.edges && graph.edges.length > 0) {
+        const nodeMap = {};
+        restored.forEach((n) => { nodeMap[n.id] = n; });
+        const restoredEdges = graph.edges.map((e) => {
+          const src = nodeMap[e.source];
+          const tgt = nodeMap[e.target];
+          const handles = src && tgt ? bestHandles(src, tgt) : { sourceHandle: 'bottom', targetHandle: 'top' };
+          const isProposed = e.status === 'proposed';
+          return {
+            id: e.id || `${e.source}-${e.target}`,
+            source: e.source,
+            target: e.target,
+            sourceHandle: handles.sourceHandle,
+            targetHandle: handles.targetHandle,
+            label: e.label,
+            ...(isProposed
+              ? { type: 'proposed', data: {
+                  onConfirm: (id) => edgeCallbacksRef.current.onConfirm?.(id),
+                  onReject: (id) => edgeCallbacksRef.current.onReject?.(id),
+                  onEditLabel: (id, newLabel) => edgeCallbacksRef.current.onEditLabel?.(id, newLabel),
+                }}
+              : { type: 'confirmed' }
+            ),
+          };
+        });
+        setEdges(restoredEdges);
+      } else {
+        setEdges([]);
+      }
+
+      fetchMetrics();
+    });
+    fetch('/api/goal').then(r => r.json()).then(g => setGoal(g)).catch(() => setGoal(null));
+    fetch('/api/suggestion').then(r => r.json()).then(s => setSuggestion(s)).catch(() => setSuggestion(null));
+  }, [setNodes, setEdges, fetchMetrics]);
+
+  // New Canvas: archive current + reset + refresh archive list
+  const handleNewCanvas = useCallback((name) => {
+    fetch('/api/sessions/archive', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+      .then((r) => r.json())
+      .then(() => {
+        setNodes([]);
+        setEdges([]);
+        setEmergingObjects([]);
+        setGoal(null);
+        setSuggestion(null);
+        setShowSuggestion(false);
+        setMetrics(null);
+        fetch('/api/sessions/archives').then(r => r.json()).then(setArchives).catch(() => {});
+      })
+      .catch(() => {});
+  }, [setNodes, setEdges]);
+
+  // Load a previous canvas from archive
+  const handleLoadCanvas = useCallback((archiveId) => {
+    fetch(`/api/sessions/archives/${archiveId}/load`, { method: 'POST' })
+      .then((r) => r.json())
+      .then(() => {
+        setEmergingObjects([]);
+        setShowSuggestion(false);
+        reloadCanvas();
+        fetch('/api/sessions/archives').then(r => r.json()).then(setArchives).catch(() => {});
+      })
+      .catch(() => {});
+  }, [reloadCanvas]);
 
   // Delete a single node + its edges
   const handleDeleteNode = useCallback((nodeId) => {
@@ -1005,7 +1099,7 @@ function Flow() {
         />
       ))}
 
-      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} metrics={metrics} onNodeFocus={handleNodeFocus} onGapClick={handleGapClick} />
+      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} metrics={metrics} onNodeFocus={handleNodeFocus} onGapClick={handleGapClick} archives={archives} onNewCanvas={handleNewCanvas} onLoadCanvas={handleLoadCanvas} />
 
       {/* Connect mode status bar */}
       {connectMode && (
