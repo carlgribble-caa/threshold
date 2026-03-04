@@ -13,24 +13,17 @@ objectsRouter.get('/', async (req, res) => {
   }
 });
 
-// Crystallize an object (set status + position)
-objectsRouter.post('/:id/crystallize', async (req, res) => {
-  const { id } = req.params;
-  const { position } = req.body;
+// Create / crystallize a new object
+objectsRouter.post('/', async (req, res) => {
+  const obj = req.body;
+  if (!obj || !obj.id) return res.status(400).json({ error: 'Object must have an id' });
 
   try {
-    const objects = await loadObjects();
-    const obj = objects.find((o) => o.id === id);
-    if (!obj) return res.status(404).json({ error: 'Object not found' });
-
-    obj.status = 'crystallized';
-    obj.position = position;
     obj.updated = new Date().toISOString();
-
     await saveObject(obj);
     res.json(obj);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to crystallize object' });
+    res.status(500).json({ error: 'Failed to save object' });
   }
 });
 

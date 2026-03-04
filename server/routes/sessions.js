@@ -1,7 +1,19 @@
 import { Router } from 'express';
-import { loadSessions, saveSession } from '../services/storage.js';
+import { loadSessions, saveSession, loadObjects, deleteObject, saveGraph } from '../services/storage.js';
 
 export const sessionsRouter = Router();
+
+// Reset — clear all objects and edges (end session + fresh start)
+sessionsRouter.post('/reset', async (req, res) => {
+  try {
+    const objects = await loadObjects().catch(() => []);
+    await Promise.all(objects.map((o) => deleteObject(o.id)));
+    await saveGraph({ edges: [], metadata: {} });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to reset' });
+  }
+});
 
 // Get all sessions
 sessionsRouter.get('/', async (req, res) => {

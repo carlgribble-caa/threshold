@@ -1,10 +1,10 @@
 /* Threshold — Dark amber palette */
 :root {
   --bg-primary: #0a0a0a;
-  --bg-card: rgba(20, 18, 15, 0.85);
-  --text-primary: #d4a574;
-  --text-secondary: #a67c52;
-  --text-dim: #6b5a45;
+  --bg-card: rgba(35, 30, 24, 0.88);
+  --text-primary: #e8c49a;
+  --text-secondary: #c9a070;
+  --text-dim: #8a7460;
   --border-subtle: rgba(212, 165, 116, 0.15);
   --glow-amber: rgba(212, 165, 116, 0.3);
   --accent-emerging: rgba(212, 165, 116, 0.4);

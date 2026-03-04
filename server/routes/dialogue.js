@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { sendToClaude } from '../services/claude.js';
 import { extractObjects } from '../services/extractor.js';
+import { loadObjects } from '../services/storage.js';
 
 export const dialogueRouter = Router();
 
@@ -12,7 +13,11 @@ dialogueRouter.post('/', async (req, res) => {
   }
 
   try {
-    const claudeResponse = await sendToClaude(text, sessionId);
+    // Load existing crystallized objects for context
+    const existingObjects = await loadObjects().catch(() => []);
+    const crystallized = existingObjects.filter((o) => o.status === 'crystallized');
+
+    const claudeResponse = await sendToClaude(text, sessionId, crystallized);
 
     // Extract objects from Claude's response
     const extracted = extractObjects(claudeResponse);

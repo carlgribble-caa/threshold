@@ -4,6 +4,5 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
-server/data/objects/
-server/data/sessions/
-server/data/logs/
+server/data/
+.claude/

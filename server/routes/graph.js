@@ -13,6 +13,16 @@ graphRouter.get('/', async (req, res) => {
   }
 });
 
+// Save full graph (edges)
+graphRouter.put('/', async (req, res) => {
+  try {
+    await saveGraph(req.body);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save graph' });
+  }
+});
+
 // Confirm a proposed edge
 graphRouter.post('/edges/confirm', async (req, res) => {
   const { fromId, toId, label } = req.body;
