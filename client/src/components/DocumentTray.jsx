@@ -57,8 +57,6 @@ function getStatusColor(status) {
 export default function DocumentTray({ open, pipeline, onGenerate, onOpenDoc, onReset }) {
   const [hoveredDoc, setHoveredDoc] = useState(null);
 
-  if (!open) return null;
-
   const docs = pipeline?.documents || {};
   const entries = Object.entries(docs);
 
@@ -81,6 +79,7 @@ export default function DocumentTray({ open, pipeline, onGenerate, onOpenDoc, on
       zIndex: 950,
       transition: 'transform 0.3s ease',
       transform: open ? 'translateY(0)' : 'translateY(100%)',
+      pointerEvents: open ? 'auto' : 'none',
     }}>
       <div style={{
         background: 'rgba(25, 22, 18, 0.92)',
@@ -95,7 +94,7 @@ export default function DocumentTray({ open, pipeline, onGenerate, onOpenDoc, on
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 14,
+          marginBottom: 10,
         }}>
           <span style={{
             color: '#8a7460',
@@ -186,7 +185,19 @@ export default function DocumentTray({ open, pipeline, onGenerate, onOpenDoc, on
                       filter: style.filter,
                       lineHeight: 1,
                     }}>
-                      {status === 'approved' ? '\u2705' : icon}
+                      {status === 'approved' ? (
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          width: 28,
+                          height: 28,
+                          border: '1.5px solid rgba(232, 196, 154, 0.35)',
+                          borderRadius: 5,
+                          fontSize: 16,
+                          color: '#7ab87a',
+                        }}>{'\u2713'}</span>
+                      ) : icon}
                     </span>
                     <span style={{
                       fontSize: 9,

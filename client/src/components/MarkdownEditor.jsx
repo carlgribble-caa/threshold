@@ -72,6 +72,16 @@ export default function MarkdownEditor({
 
   const isRationale = docName?.startsWith('rationale:');
 
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([value || ''], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${displayName.replace(/\s+/g, '-').toLowerCase()}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [value, displayName]);
+
   return (
     <div
       style={{
@@ -85,6 +95,7 @@ export default function MarkdownEditor({
         flexDirection: 'column',
         background: '#0d0b09',
         borderLeft: '1px solid rgba(232, 196, 154, 0.12)',
+        animation: 'editorSlideIn 0.3s ease',
       }}
       data-color-mode="dark"
     >
@@ -171,6 +182,23 @@ export default function MarkdownEditor({
               }}
             >
               Approve
+            </button>
+          )}
+          {value && (
+            <button
+              onClick={handleDownload}
+              title="Download as .md"
+              style={{
+                background: 'rgba(232, 196, 154, 0.06)',
+                border: '1px solid rgba(232, 196, 154, 0.15)',
+                color: '#c4a882',
+                fontSize: 11,
+                padding: '4px 10px',
+                borderRadius: 5,
+                cursor: 'pointer',
+              }}
+            >
+              Download
             </button>
           )}
           <button
@@ -265,6 +293,31 @@ export default function MarkdownEditor({
         }
         .w-md-editor-bar {
           display: none !important;
+        }
+        @keyframes editorSlideIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+        .w-md-editor-preview ::-webkit-scrollbar,
+        .w-md-editor-input ::-webkit-scrollbar,
+        .w-md-editor ::-webkit-scrollbar {
+          width: 4px;
+        }
+        .w-md-editor-preview ::-webkit-scrollbar-track,
+        .w-md-editor-input ::-webkit-scrollbar-track,
+        .w-md-editor ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .w-md-editor-preview ::-webkit-scrollbar-thumb,
+        .w-md-editor-input ::-webkit-scrollbar-thumb,
+        .w-md-editor ::-webkit-scrollbar-thumb {
+          background: rgba(212, 165, 116, 0.25);
+          border-radius: 2px;
+        }
+        .w-md-editor-preview ::-webkit-scrollbar-thumb:hover,
+        .w-md-editor-input ::-webkit-scrollbar-thumb:hover,
+        .w-md-editor ::-webkit-scrollbar-thumb:hover {
+          background: rgba(212, 165, 116, 0.45);
         }
       `}</style>
     </div>

@@ -2,6 +2,7 @@
 // from the environment. Falls back to spawning `claude -p` if available.
 
 import { spawn } from 'child_process';
+import { getModel } from './model-config.js';
 
 const API_BASE = 'https://api.anthropic.com';
 
@@ -29,7 +30,7 @@ async function callApi(promptText) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model: getModel(),
       max_tokens: 4096,
       messages: [{ role: 'user', content: promptText }],
     }),
@@ -56,7 +57,7 @@ function callCli(promptText) {
     const env = { ...process.env };
     delete env.CLAUDECODE;
 
-    const proc = spawn('claude', ['-p'], { shell: true, env });
+    const proc = spawn('claude', ['-p', '--model', getModel()], { shell: true, env });
     let stdout = '';
     let stderr = '';
 

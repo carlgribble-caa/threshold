@@ -26,7 +26,7 @@ export default function PipelineProgress({ pipeline }) {
   return (
     <div style={{
       position: 'fixed',
-      bottom: 140,
+      bottom: 118,
       left: '50%',
       transform: 'translateX(-50%)',
       display: 'flex',

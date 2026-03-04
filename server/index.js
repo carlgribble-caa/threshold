@@ -21,6 +21,7 @@ import { metricsRouter } from './routes/metrics.js';
 import { goalRouter } from './routes/goal.js';
 import { suggestionRouter } from './routes/suggestion.js';
 import { documentsRouter } from './routes/documents.js';
+import { settingsRouter } from './routes/settings.js';
 
 const app = express();
 const PORT = 3001;
@@ -38,6 +39,7 @@ app.use('/api/metrics', metricsRouter);
 app.use('/api/goal', goalRouter);
 app.use('/api/suggestion', suggestionRouter);
 app.use('/api/documents', documentsRouter);
+app.use('/api/settings', settingsRouter);
 
 // Health check
 app.get('/api/health', (req, res) => {

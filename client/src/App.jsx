@@ -121,6 +121,8 @@ function Flow() {
   const [showDocTray, setShowDocTray] = useState(false);
   const [pipeline, setPipeline] = useState(null);
   const [editorDoc, setEditorDoc] = useState(null); // { name, content }
+  const [currentModel, setCurrentModel] = useState(null);
+  const [availableModels, setAvailableModels] = useState([]);
 
   const { screenToFlowPosition, setCenter, getZoom, getNodes } = useReactFlow();
   const saveTimers = useRef({});
@@ -266,6 +268,10 @@ function Flow() {
     fetch('/api/suggestion').then(r => r.json()).then(s => setSuggestion(s)).catch(() => {});
     fetch('/api/sessions/archives').then(r => r.json()).then(setArchives).catch(() => {});
     fetch('/api/documents/pipeline').then(r => r.json()).then(setPipeline).catch(() => {});
+    fetch('/api/settings').then(r => r.json()).then(s => {
+      setCurrentModel(s.model);
+      setAvailableModels(s.availableModels || []);
+    }).catch(() => {});
   }, [setNodes, setEdges, fetchMetrics]);
 
   // When dialogue produces new objects, add them to orbit
@@ -1027,6 +1033,17 @@ function Flow() {
     setSidebarOpen((v) => !v);
   }, []);
 
+  const handleModelChange = useCallback((modelId) => {
+    fetch('/api/settings/model', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelId }),
+    })
+      .then(r => r.json())
+      .then(data => setCurrentModel(data.model))
+      .catch(() => {});
+  }, []);
+
   // Reasoning gap click: generate a targeted suggestion and show it
   const handleGapClick = useCallback((item, gapType) => {
     const suggestions = {
@@ -1240,7 +1257,7 @@ function Flow() {
         );
       })()}
 
-      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} metrics={metrics} onNodeFocus={handleNodeFocus} onGapClick={handleGapClick} archives={archives} onNewCanvas={handleNewCanvas} onLoadCanvas={handleLoadCanvas} />
+      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} metrics={metrics} onNodeFocus={handleNodeFocus} onGapClick={handleGapClick} archives={archives} onNewCanvas={handleNewCanvas} onLoadCanvas={handleLoadCanvas} currentModel={currentModel} availableModels={availableModels} onModelChange={handleModelChange} />
 
       {/* Connect mode status bar */}
       {connectMode && (

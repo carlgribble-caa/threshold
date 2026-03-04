@@ -37,15 +37,13 @@ function ClickableItem({ label, color: itemColor, onClick }) {
   );
 }
 
-export default function Sidebar({ open, onToggle, nodes = [], edges = [], onReset, metrics, onNodeFocus, onGapClick, archives = [], onNewCanvas, onLoadCanvas }) {
+export default function Sidebar({ open, onToggle, nodes = [], edges = [], onReset, metrics, onNodeFocus, onGapClick, archives = [], onNewCanvas, onLoadCanvas, currentModel, availableModels = [], onModelChange }) {
   // Count objects by type
   const typeCounts = {};
   nodes.forEach((n) => {
     const t = n.data?.type || 'concept';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-
-  if (!open) return null;
 
   const gm = metrics?.graph;
   const hasMetrics = gm && gm.nodeCount > 0;
@@ -61,25 +59,27 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
   }
 
   return (
-    <>
-      {open && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            width: 260,
-            height: '100vh',
-            background: 'rgba(15, 13, 10, 0.92)',
-            borderRight: '1px solid rgba(232, 196, 154, 0.1)',
-            backdropFilter: 'blur(20px)',
-            padding: '24px 16px',
-            zIndex: 950,
-            color: '#e8c49a',
-            fontSize: 13,
-            overflowY: 'auto',
-          }}
-        >
+    <div
+      className="threshold-sidebar"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        width: 260,
+        height: '100vh',
+        background: 'rgba(15, 13, 10, 0.92)',
+        borderRight: '1px solid rgba(232, 196, 154, 0.1)',
+        backdropFilter: 'blur(20px)',
+        padding: '24px 16px',
+        zIndex: 950,
+        color: '#e8c49a',
+        fontSize: 13,
+        overflowY: 'auto',
+        transform: open ? 'translateX(0)' : 'translateX(-100%)',
+        transition: 'transform 0.3s ease',
+        pointerEvents: open ? 'auto' : 'none',
+      }}
+    >
           {/* Close button */}
           <button
             onClick={onToggle}
@@ -99,9 +99,12 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
             x
           </button>
 
-          <h3 style={{ fontSize: 14, fontWeight: 400, letterSpacing: '0.06em', marginBottom: 24, color: '#c9a070' }}>
+          <h3 style={{ fontSize: 14, fontWeight: 400, letterSpacing: '0.06em', marginBottom: 4, color: '#c9a070' }}>
             THRESHOLD
           </h3>
+          <div style={{ fontSize: 10, color: '#5a4e42', marginBottom: 20, letterSpacing: '0.04em' }}>
+            v{__BUILD_VERSION__} · {__BUILD_HASH__}
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {/* Overview */}
@@ -240,6 +243,32 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
               </>
             )}
 
+            {/* Model selector */}
+            <div style={sectionHeader}>Model</div>
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+              {availableModels.map(m => {
+                const isActive = m.id === currentModel;
+                return (
+                  <button
+                    key={m.id}
+                    onClick={() => onModelChange?.(m.id)}
+                    style={{
+                      background: isActive ? 'rgba(212, 165, 116, 0.15)' : 'rgba(232, 196, 154, 0.04)',
+                      border: `1px solid ${isActive ? 'rgba(212, 165, 116, 0.4)' : 'rgba(232, 196, 154, 0.1)'}`,
+                      borderRadius: 5,
+                      color: isActive ? '#e8c49a' : '#6b5a4a',
+                      padding: '4px 10px',
+                      cursor: 'pointer',
+                      fontSize: 11,
+                      fontWeight: isActive ? 500 : 400,
+                    }}
+                  >
+                    {m.label}
+                  </button>
+                );
+              })}
+            </div>
+
             {/* Canvas controls */}
             <div style={sectionHeader}>Canvas</div>
             <button
@@ -315,8 +344,21 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
               </button>
             </div>
           </div>
-        </div>
-      )}
-    </>
+      <style>{`
+        .threshold-sidebar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .threshold-sidebar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .threshold-sidebar::-webkit-scrollbar-thumb {
+          background: rgba(212, 165, 116, 0.25);
+          border-radius: 2px;
+        }
+        .threshold-sidebar::-webkit-scrollbar-thumb:hover {
+          background: rgba(212, 165, 116, 0.45);
+        }
+      `}</style>
+    </div>
   );
 }
