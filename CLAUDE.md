@@ -41,3 +41,15 @@ A no-code reasoning platform. Where Notion is no-code CRUD, Threshold is no-code
 4. The space grows with the user's thinking, not their message count
 5. Context is navigated, not consumed
 6. Teach through experience, not explanation
+
+## Versioning & Changelog
+
+- Version lives in root `package.json` (`"version": "0.1.0"`)
+- Git short hash is injected at build time by `client/vite.config.js`
+- Both are displayed in the sidebar under the THRESHOLD header
+- **When committing meaningful changes**, update `CHANGELOG.md`:
+  1. Add entries under the current `[version]` section, or create a new version section if bumping
+  2. Include the git hash in parentheses after each entry group
+  3. Use categories: Added, Changed, Fixed, Removed
+  4. Keep entries concise — one line per feature/fix
+- **When bumping version**, update `package.json` version field. Use semver: patch for fixes, minor for features, major for breaking changes
