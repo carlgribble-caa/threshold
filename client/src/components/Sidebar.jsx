@@ -12,7 +12,32 @@ const typeColors = {
   principle: '#d9c088',
 };
 
-export default function Sidebar({ open, onToggle, nodes = [], edges = [], onReset }) {
+const sectionHeader = { color: '#8a7460', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11, marginTop: 20 };
+const metricRow = { display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0' };
+const metricLabel = { color: '#8a7460' };
+const metricValue = { color: '#e8c49a' };
+const warningColor = '#e8a08a';
+
+function ClickableItem({ label, color: itemColor, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        fontSize: 11,
+        color: itemColor || '#e8c49a',
+        padding: '2px 0',
+        cursor: onClick ? 'pointer' : 'default',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </div>
+  );
+}
+
+export default function Sidebar({ open, onToggle, nodes = [], edges = [], onReset, metrics, onNodeFocus, onGapClick }) {
   // Count objects by type
   const typeCounts = {};
   nodes.forEach((n) => {
@@ -22,9 +47,21 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
 
   if (!open) return null;
 
+  const gm = metrics?.graph;
+  const hasMetrics = gm && gm.nodeCount > 0;
+
+  // Clustering descriptor
+  let clusterDesc = '';
+  if (hasMetrics) {
+    const avgClustering = Object.values(metrics.nodes || {}).reduce((sum, n) => sum + (n.clusteringCoefficient || 0), 0) / (gm.nodeCount || 1);
+    if (avgClustering > 0.5) clusterDesc = 'tightly clustered';
+    else if (avgClustering > 0.2) clusterDesc = 'moderately connected';
+    else if (avgClustering > 0) clusterDesc = 'loosely connected';
+    else clusterDesc = 'sparse';
+  }
+
   return (
     <>
-      {/* Sidebar panel */}
       {open && (
         <div
           style={{
@@ -66,24 +103,38 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
             THRESHOLD
           </h3>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Graph Health */}
-            <div style={{ color: '#8a7460', textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 11 }}>
-              Graph Health
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {/* Overview */}
+            <div style={sectionHeader}>Overview</div>
 
             {nodes.length === 0 ? (
               <div style={{ color: '#5a4e42', fontSize: 11 }}>No objects yet</div>
             ) : (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                  <span style={{ color: '#8a7460' }}>Objects</span>
-                  <span>{nodes.length}</span>
+                <div style={metricRow}>
+                  <span style={metricLabel}>Objects</span>
+                  <span style={metricValue}>{nodes.length}</span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                  <span style={{ color: '#8a7460' }}>Connections</span>
-                  <span>{edges.length}</span>
+                <div style={metricRow}>
+                  <span style={metricLabel}>Connections</span>
+                  <span style={metricValue}>{edges.length}</span>
                 </div>
+                {hasMetrics && (
+                  <>
+                    <div style={metricRow}>
+                      <span style={metricLabel}>Density</span>
+                      <span style={metricValue}>{Math.round(gm.density * 100)}%</span>
+                    </div>
+                    <div style={metricRow}>
+                      <span style={metricLabel}>Components</span>
+                      <span style={metricValue}>{gm.connectedComponents} {gm.connectedComponents === 1 ? 'island' : 'islands'}</span>
+                    </div>
+                    <div style={metricRow}>
+                      <span style={metricLabel}>Clustering</span>
+                      <span style={{ ...metricValue, fontSize: 11 }}>{clusterDesc}</span>
+                    </div>
+                  </>
+                )}
 
                 {/* Type breakdown */}
                 <div style={{ marginTop: 8 }}>
@@ -104,6 +155,88 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
                       </div>
                     ))}
                 </div>
+              </>
+            )}
+
+            {/* Structural Health */}
+            {hasMetrics && (gm.mostConnected.length > 0 || gm.bridgeObjects.length > 0 || gm.isolatedNodes.length > 0) && (
+              <>
+                <div style={sectionHeader}>Structure</div>
+
+                {gm.mostConnected.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontSize: 10, color: '#8a7460', marginBottom: 2 }}>Most connected</div>
+                    {gm.mostConnected.slice(0, 3).map((item) => (
+                      <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <ClickableItem label={item.label} onClick={() => onNodeFocus?.(item.id)} />
+                        <span style={{ fontSize: 10, color: '#5a4e42', flexShrink: 0, marginLeft: 8 }}>{item.degree}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {gm.bridgeObjects.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: '#8a7460', marginBottom: 2 }}>Bridge objects</div>
+                    {gm.bridgeObjects.map((item) => (
+                      <ClickableItem key={item.id} label={item.label} color="#ffe6b4" onClick={() => onNodeFocus?.(item.id)} />
+                    ))}
+                  </div>
+                )}
+
+                {gm.isolatedNodes.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: '#8a7460', marginBottom: 2 }}>
+                      Isolated ({gm.isolatedNodes.length})
+                    </div>
+                    {gm.isolatedNodes.slice(0, 5).map((id) => {
+                      const node = nodes.find(n => n.id === id);
+                      return node ? (
+                        <ClickableItem key={id} label={node.data?.label || id} color="#6a5e52" onClick={() => onNodeFocus?.(id)} />
+                      ) : null;
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Reasoning Coverage */}
+            {hasMetrics && (gm.unchallengedClaims.length > 0 || gm.unsupportedClaims.length > 0 || gm.unresolvedTensions.length > 0) && (
+              <>
+                <div style={sectionHeader}>Reasoning Gaps</div>
+
+                {gm.unchallengedClaims.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <div style={{ fontSize: 10, color: warningColor, marginBottom: 2 }}>
+                      Unchallenged claims ({gm.unchallengedClaims.length})
+                    </div>
+                    {gm.unchallengedClaims.slice(0, 4).map((item) => (
+                      <ClickableItem key={item.id} label={item.label} color={warningColor} onClick={() => onGapClick?.(item, 'unchallenged')} />
+                    ))}
+                  </div>
+                )}
+
+                {gm.unsupportedClaims.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: '#c9a070', marginBottom: 2 }}>
+                      Unsupported claims ({gm.unsupportedClaims.length})
+                    </div>
+                    {gm.unsupportedClaims.slice(0, 4).map((item) => (
+                      <ClickableItem key={item.id} label={item.label} color="#c9a070" onClick={() => onGapClick?.(item, 'unsupported')} />
+                    ))}
+                  </div>
+                )}
+
+                {gm.unresolvedTensions.length > 0 && (
+                  <div style={{ marginTop: 8 }}>
+                    <div style={{ fontSize: 10, color: warningColor, marginBottom: 2 }}>
+                      Unresolved tensions ({gm.unresolvedTensions.length})
+                    </div>
+                    {gm.unresolvedTensions.slice(0, 4).map((item) => (
+                      <ClickableItem key={item.id} label={item.label} color={warningColor} onClick={() => onGapClick?.(item, 'unresolved')} />
+                    ))}
+                  </div>
+                )}
               </>
             )}
 

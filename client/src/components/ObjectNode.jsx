@@ -44,7 +44,6 @@ const opsForType = {
   claim:      ['challenge', 'deduce', 'abduct'],
   metaphor:   ['analogize', 'explode', 'bridge'],
   relation:   ['explode', 'bridge'],
-  goal:       ['deduce', 'explode', 'bridge'],
   evidence:   ['induce', 'abduct', 'challenge'],
   assumption: ['challenge', 'abduct', 'deduce'],
   pattern:    ['induce', 'analogize', 'explode'],
@@ -74,7 +73,7 @@ const actionBtnStyle = (color) => ({
 });
 
 function ObjectNode({ data }) {
-  const { label, type, status, summary, confidence, expanded, onDelete, onReason, onEdit, reasoning } = data;
+  const { label, type, status, summary, confidence, expanded, onDelete, onReason, onEdit, reasoning, _metrics } = data;
   const color = typeColors[type] || '#d4a574';
   const isEmerging = status === 'emerging';
   const conf = confidence || 0.5;
@@ -119,8 +118,17 @@ function ObjectNode({ data }) {
     setEditMode(false);
   };
 
-  // Ambient glow: scales with confidence
-  const glowIntensity = Math.round(conf * 18);
+  // Metric-driven ambient signals
+  const deg = _metrics?.degreeCentrality || 0;
+  const isBridge = _metrics?.isBridge || false;
+  const isIsolated = _metrics?.isIsolated || false;
+  const isUnchallengedClaim = _metrics?.isUnchallengedClaim || false;
+  const isUnsupportedClaim = _metrics?.isUnsupportedClaim || false;
+  const isUnresolvedTension = _metrics?.isUnresolvedTension || false;
+  const cc = _metrics?.clusteringCoefficient || 0;
+
+  // Ambient glow: scales with confidence + degree centrality boost
+  const glowIntensity = Math.round(conf * 18 * (1 + deg * 2));
   const isClaim = type === 'claim';
   const isTension = type === 'tension';
   const ambientGlow = isEmerging
@@ -129,14 +137,24 @@ function ObjectNode({ data }) {
       ? `0 0 24px ${color}15, 0 4px 20px rgba(0,0,0,0.4)`
       : `0 0 ${glowIntensity}px ${color}${Math.round(conf * 12).toString(16).padStart(2, '0')}`;
 
+  // Accent borders — unchallenged claims get warning hue
   const hasAccent = (isClaim || isTension) && !isEmerging;
+  const accentColor = isUnchallengedClaim ? 'rgba(232, 140, 100, 0.5)' : `${color}60`;
+
   const bColor = `${color}${expanded ? '60' : '40'}`;
-  const bStyle = isEmerging ? 'dashed' : 'solid';
+  const bStyle = isEmerging ? 'dashed' : (isUnsupportedClaim ? 'dashed' : 'solid');
 
   const shadows = [
-    hasAccent ? `inset 2px 0 0 ${color}60` : null,
+    hasAccent || isUnchallengedClaim ? `inset 2px 0 0 ${accentColor}` : null,
     ambientGlow !== 'none' ? ambientGlow : null,
+    isBridge ? `0 0 12px rgba(255, 230, 180, 0.15)` : null,
+    isUnresolvedTension ? `0 0 8px rgba(232, 140, 100, 0.2)` : null,
   ].filter(Boolean).join(', ') || 'none';
+
+  // Isolated nodes: dimmer, desaturated
+  const nodeOpacity = isEmerging ? 0.7 : isIsolated ? 0.55 : 1;
+  // Cluster warmth: tight clusters get a warmer background
+  const bgWarm = cc > 0.5 && !isEmerging;
 
   return (
     <div
@@ -144,13 +162,14 @@ function ObjectNode({ data }) {
       style={{
         width: expanded ? 260 : 200,
         padding: expanded ? 16 : 12,
-        background: isEmerging ? 'rgba(20, 18, 15, 0.5)' : 'rgba(20, 18, 15, 0.9)',
+        background: isEmerging ? 'rgba(20, 18, 15, 0.5)' : bgWarm ? 'rgba(25, 20, 15, 0.92)' : 'rgba(20, 18, 15, 0.9)',
         border: `1px ${bStyle} ${bColor}`,
         borderRadius: expanded ? 12 : 8,
         color,
-        opacity: isEmerging ? 0.7 : 1,
+        opacity: nodeOpacity,
+        filter: isIsolated && !isEmerging ? 'saturate(0.6)' : 'none',
         boxShadow: shadows,
-        transition: 'width 0.2s ease, padding 0.2s ease, box-shadow 0.3s ease, border-radius 0.2s ease',
+        transition: 'width 0.2s ease, padding 0.2s ease, box-shadow 0.3s ease, border-radius 0.2s ease, opacity 0.3s ease, filter 0.3s ease',
       }}
     >
       <Handle id="top" type="source" position={Position.Top} style={handleStyle(color)} />

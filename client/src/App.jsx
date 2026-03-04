@@ -5,15 +5,15 @@ import DialogueOverlay from './components/DialogueOverlay';
 import EmergingObject from './components/EmergingObject';
 import Sidebar from './components/Sidebar';
 import ObjectNode from './components/ObjectNode';
-import GoalNode from './components/GoalNode';
 import ProposedEdge from './components/ProposedEdge';
 import ConfirmedEdge from './components/ConfirmedEdge';
 import Toolbar from './components/Toolbar';
 import AddObjectModal from './components/AddObjectModal';
+import GoalDialog from './components/GoalDialog';
+import SuggestionPopup from './components/SuggestionPopup';
 
 const nodeTypes = {
   object: ObjectNode,
-  goal: GoalNode,
 };
 
 const edgeTypes = {
@@ -22,13 +22,13 @@ const edgeTypes = {
 };
 
 // Node dimensions (approximate) for handle position calculation
-const NODE_W = { object: 200, goal: 220 };
+const NODE_W = 200;
 const NODE_H_DEFAULT = 100;
 
 // Pick the best source/target handle pair based on relative node positions.
 function bestHandles(srcNode, tgtNode) {
-  const sw = NODE_W[srcNode.type] || 200;
-  const tw = NODE_W[tgtNode.type] || 200;
+  const sw = NODE_W;
+  const tw = NODE_W;
   const sh = srcNode.measured?.height || NODE_H_DEFAULT;
   const th = tgtNode.measured?.height || NODE_H_DEFAULT;
 
@@ -107,9 +107,78 @@ function Flow() {
   const [connectMode, setConnectMode] = useState(false);
   const [connectSource, setConnectSource] = useState(null);
   const [emergingObjects, setEmergingObjects] = useState([]);
-  const { screenToFlowPosition, setCenter, getZoom } = useReactFlow();
+  const [metrics, setMetrics] = useState(null);
+  const [goal, setGoal] = useState(null);
+  const [showGoalDialog, setShowGoalDialog] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
+  const [showSuggestion, setShowSuggestion] = useState(false);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const [reasoningActive, setReasoningActive] = useState(null); // { operation, label } or null
+  const { screenToFlowPosition, setCenter, getZoom, getNodes } = useReactFlow();
   const saveTimers = useRef({});
+  const metricsTimer = useRef(null);
   const edgeCallbacksRef = useRef({ onConfirm: null, onReject: null, onEditLabel: null });
+
+  // Debounced metrics fetch
+  const fetchMetrics = useCallback(() => {
+    if (metricsTimer.current) clearTimeout(metricsTimer.current);
+    metricsTimer.current = setTimeout(() => {
+      fetch('/api/metrics').then(r => r.json()).then(setMetrics).catch(() => {});
+    }, 500);
+  }, []);
+
+  // Auto-suggest: fire-and-forget, poll for result
+  const triggerAutoSuggest = useCallback(() => {
+    fetch('/api/suggestion/auto', { method: 'POST' }).catch(() => {});
+    setTimeout(() => {
+      fetch('/api/suggestion').then(r => r.json()).then(s => {
+        if (s) setSuggestion(s);
+      }).catch(() => {});
+    }, 8000);
+  }, []);
+
+  // Manual suggest
+  const triggerSuggest = useCallback(async () => {
+    setSuggestLoading(true);
+    try {
+      const res = await fetch('/api/suggestion', { method: 'POST' });
+      const data = await res.json();
+      setSuggestion(data);
+    } catch {
+      // silently fail
+    } finally {
+      setSuggestLoading(false);
+    }
+  }, []);
+
+  // Inject per-node metrics into node data when metrics update
+  useEffect(() => {
+    if (!metrics?.nodes) return;
+    setNodes((nds) => {
+      let changed = false;
+      const updated = nds.map((n) => {
+        const nm = metrics.nodes[n.id];
+        if (!nm) return n;
+        const prev = n.data._metrics;
+        if (prev && prev.degreeCentrality === nm.degreeCentrality && prev.betweennessCentrality === nm.betweennessCentrality && prev.isIsolated === nm.isIsolated && prev.isUnchallengedClaim === nm.isUnchallengedClaim && prev.isUnresolvedTension === nm.isUnresolvedTension) return n;
+        changed = true;
+        return { ...n, data: { ...n.data, _metrics: nm } };
+      });
+      return changed ? updated : nds;
+    });
+  }, [metrics, setNodes]);
+
+  // Focus on a node (pan canvas to it)
+  const handleNodeFocus = useCallback((nodeId) => {
+    setNodes((nds) => {
+      const target = nds.find((n) => n.id === nodeId);
+      if (target) {
+        const h = target.measured?.height || NODE_H_DEFAULT;
+        setCenter(target.position.x + NODE_W / 2, target.position.y + h / 2, { zoom: getZoom(), duration: 400 });
+      }
+      return nds;
+    });
+  }, [setCenter, getZoom, setNodes]);
 
   // Escape exits connect mode
   useEffect(() => {
@@ -124,7 +193,7 @@ function Flow() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [connectMode]);
 
-  // Load persisted objects and edges on mount
+  // Load persisted objects, edges, goal, and suggestion on mount
   useEffect(() => {
     Promise.all([
       fetch('/api/objects').then((r) => r.json()).catch(() => []),
@@ -134,7 +203,7 @@ function Flow() {
         .filter((o) => o.status === 'crystallized')
         .map((o) => ({
           id: o.id,
-          type: o.type === 'goal' ? 'goal' : 'object',
+          type: 'object',
           position: o.position || { x: 0, y: 0 },
           data: {
             label: o.label,
@@ -179,8 +248,15 @@ function Flow() {
         });
         setEdges(restoredEdges);
       }
+
+      // Fetch metrics after initial load
+      fetchMetrics();
     });
-  }, [setNodes, setEdges]);
+
+    // Load goal and suggestion
+    fetch('/api/goal').then(r => r.json()).then(g => setGoal(g)).catch(() => {});
+    fetch('/api/suggestion').then(r => r.json()).then(s => setSuggestion(s)).catch(() => {});
+  }, [setNodes, setEdges, fetchMetrics]);
 
   // When dialogue produces new objects, add them to orbit
   const handleObjectsEmerged = useCallback((objects) => {
@@ -193,7 +269,7 @@ function Flow() {
 
     const newNode = {
       id: obj.id,
-      type: obj.type === 'goal' ? 'goal' : 'object',
+      type: 'object',
       position,
       data: {
         label: obj.label,
@@ -223,7 +299,10 @@ function Flow() {
         updated: new Date().toISOString(),
       }),
     }).catch(() => {});
-  }, [setNodes, screenToFlowPosition]);
+
+    fetchMetrics();
+    triggerAutoSuggest();
+  }, [setNodes, screenToFlowPosition, fetchMetrics, triggerAutoSuggest]);
 
   // When Claude proposes connections, resolve labels → node IDs and create edges
   const handleConnectionsProposed = useCallback((connections, newObjects) => {
@@ -330,6 +409,9 @@ function Flow() {
         setNodes([]);
         setEdges([]);
         setEmergingObjects([]);
+        setGoal(null);
+        setSuggestion(null);
+        setShowSuggestion(false);
       })
       .catch(() => {});
   }, [setNodes, setEdges]);
@@ -352,7 +434,9 @@ function Flow() {
       return remaining;
     });
     fetch(`/api/objects/${nodeId}`, { method: 'DELETE' }).catch(() => {});
-  }, [setNodes, setEdges]);
+    fetchMetrics();
+    triggerAutoSuggest();
+  }, [setNodes, setEdges, fetchMetrics, triggerAutoSuggest]);
 
   // Edit a node's label or summary
   const handleEditNode = useCallback((nodeId, updates) => {
@@ -399,9 +483,11 @@ function Flow() {
           })),
         }),
       }).catch(() => {});
+      fetchMetrics();
+      triggerAutoSuggest();
       return updated;
     });
-  }, [setEdges]);
+  }, [setEdges, fetchMetrics, triggerAutoSuggest]);
 
   // Reject a proposed edge → remove it
   const handleRejectEdge = useCallback((edgeId) => {
@@ -417,9 +503,10 @@ function Flow() {
           })),
         }),
       }).catch(() => {});
+      fetchMetrics();
       return remaining;
     });
-  }, [setEdges]);
+  }, [setEdges, fetchMetrics]);
 
   // Edit an edge label
   const handleEditEdgeLabel = useCallback((edgeId, newLabel) => {
@@ -503,7 +590,7 @@ function Flow() {
 
     const newNode = {
       id,
-      type: type === 'goal' ? 'goal' : 'object',
+      type: 'object',
       position,
       data: {
         label,
@@ -532,18 +619,21 @@ function Flow() {
         updated: new Date().toISOString(),
       }),
     }).catch(() => {});
-  }, [setNodes, screenToFlowPosition]);
+
+    fetchMetrics();
+    triggerAutoSuggest();
+  }, [setNodes, screenToFlowPosition, fetchMetrics, triggerAutoSuggest]);
 
   // Execute a reasoning operation on a node
   const handleReason = useCallback((nodeId, operation) => {
     setNodes((nds) => {
       const target = nds.find((n) => n.id === nodeId);
       if (target) {
-        const nodeW = target.type === 'goal' ? 220 : 200;
         const nodeH = target.measured?.height || 100;
-        const cx = target.position.x + nodeW / 2;
+        const cx = target.position.x + NODE_W / 2;
         const cy = target.position.y + nodeH / 2;
         setCenter(cx, cy, { zoom: getZoom(), duration: 400 });
+        setReasoningActive({ operation, label: target.data.label });
       }
       return nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, reasoning: true } } : n);
     });
@@ -555,6 +645,7 @@ function Flow() {
     })
       .then((r) => r.json())
       .then((result) => {
+        setReasoningActive(null);
         setNodes((nds) =>
           nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, reasoning: false } } : n)
         );
@@ -571,13 +662,16 @@ function Flow() {
             handleConnectionsProposed(result.connections, newObjects);
           }
         }
+        fetchMetrics();
+        triggerAutoSuggest();
       })
       .catch(() => {
+        setReasoningActive(null);
         setNodes((nds) =>
           nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, reasoning: false } } : n)
         );
       });
-  }, [setNodes, setEmergingObjects, handleConnectionsProposed, setCenter, getZoom]);
+  }, [setNodes, setEmergingObjects, handleConnectionsProposed, setCenter, getZoom, fetchMetrics, triggerAutoSuggest]);
 
   const handleReasonRef = useRef(handleReason);
   handleReasonRef.current = handleReason;
@@ -640,31 +734,151 @@ function Flow() {
   }, []);
 
   // Toolbar handlers
-  const handleToolbarDialogue = useCallback(() => {
-    setShowDialogue((v) => !v);
+  const closeOverlays = useCallback(() => {
+    setShowDialogue(false);
+    setShowAddObject(false);
     setConnectMode(false);
     setConnectSource(null);
-    setShowAddObject(false);
+    setShowGoalDialog(false);
+    setShowSuggestion(false);
   }, []);
+
+  const handleToolbarDialogue = useCallback(() => {
+    const wasOpen = showDialogue;
+    closeOverlays();
+    if (!wasOpen) setShowDialogue(true);
+  }, [showDialogue, closeOverlays]);
 
   const handleToolbarAddObject = useCallback(() => {
-    setShowAddObject((v) => !v);
-    setConnectMode(false);
-    setConnectSource(null);
-    setShowDialogue(false);
-  }, []);
+    const wasOpen = showAddObject;
+    closeOverlays();
+    if (!wasOpen) setShowAddObject(true);
+  }, [showAddObject, closeOverlays]);
 
   const handleToolbarConnect = useCallback(() => {
-    setConnectMode((v) => {
-      if (v) setConnectSource(null);
-      return !v;
-    });
-    setShowDialogue(false);
-    setShowAddObject(false);
-  }, []);
+    const wasActive = connectMode;
+    closeOverlays();
+    if (!wasActive) setConnectMode(true);
+  }, [connectMode, closeOverlays]);
+
+  const handleToolbarGoal = useCallback(() => {
+    const wasOpen = showGoalDialog;
+    closeOverlays();
+    if (!wasOpen) setShowGoalDialog(true);
+  }, [showGoalDialog, closeOverlays]);
+
+  const handleToolbarSuggest = useCallback(() => {
+    if (showSuggestion) {
+      // Already showing, toggle off
+      setShowSuggestion(false);
+      return;
+    }
+    closeOverlays();
+    if (!suggestion) {
+      // No suggestion, trigger one
+      triggerSuggest();
+    }
+    setShowSuggestion(true);
+  }, [suggestion, showSuggestion, closeOverlays, triggerSuggest]);
+
+  // Apply a suggestion: execute the recommended action on the canvas
+  const handleApplySuggestion = useCallback((sg) => {
+    const currentNodes = getNodes();
+
+    // Goal-type suggestion: open goal dialog
+    if (sg.type === 'goal') {
+      closeOverlays();
+      setShowGoalDialog(true);
+      return;
+    }
+
+    // Find the target node by label
+    const targetNode = sg.targetLabel
+      ? currentNodes.find((n) => n.data.label.toLowerCase() === sg.targetLabel.toLowerCase())
+      : null;
+
+    // Operation suggestion: run reasoning on target
+    if (targetNode && sg.operation) {
+      setShowSuggestion(false);
+      handleReason(targetNode.id, sg.operation);
+      return;
+    }
+
+    // Structure suggestion: find a second node mentioned in the text and connect them
+    if (targetNode && sg.type === 'structure') {
+      const textLower = sg.text.toLowerCase();
+      const secondNode = currentNodes.find((n) =>
+        n.id !== targetNode.id && textLower.includes(n.data.label.toLowerCase())
+      );
+      if (secondNode) {
+        setShowSuggestion(false);
+        handleManualConnect(targetNode.id, secondNode.id);
+        handleNodeFocus(targetNode.id);
+        return;
+      }
+    }
+
+    // Fallback: focus on target node
+    if (targetNode) {
+      setShowSuggestion(false);
+      handleNodeFocus(targetNode.id);
+      return;
+    }
+  }, [getNodes, handleReason, handleNodeFocus, handleManualConnect, closeOverlays]);
 
   const handleToolbarSidebar = useCallback(() => {
     setSidebarOpen((v) => !v);
+  }, []);
+
+  // Reasoning gap click: generate a targeted suggestion and show it
+  const handleGapClick = useCallback((item, gapType) => {
+    const suggestions = {
+      unchallenged: {
+        text: `The claim '${item.label}' has no challenges — apply Challenge to surface counter-evidence, weaknesses, or alternative perspectives.`,
+        type: 'operation',
+        targetLabel: item.label,
+        operation: 'challenge',
+      },
+      unsupported: {
+        text: `The claim '${item.label}' lacks supporting evidence — apply Abduct to generate explanatory hypotheses, or add evidence manually.`,
+        type: 'operation',
+        targetLabel: item.label,
+        operation: 'abduct',
+      },
+      unresolved: {
+        text: `The tension '${item.label}' is unresolved — apply Synthesize to find a higher-order concept that reconciles both sides.`,
+        type: 'operation',
+        targetLabel: item.label,
+        operation: 'synthesize',
+      },
+    };
+
+    const sg = suggestions[gapType];
+    if (sg) {
+      sg.generated = new Date().toISOString();
+      setSidebarOpen(false);
+      setSuggestion(sg);
+      setShowSuggestion(true);
+      handleNodeFocus(item.id);
+    }
+  }, [handleNodeFocus]);
+
+  // Goal handlers
+  const handleGoalSave = useCallback(({ text, outputFormat }) => {
+    fetch('/api/goal', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, outputFormat }),
+    })
+      .then(r => r.json())
+      .then(setGoal)
+      .catch(() => {});
+  }, []);
+
+  const handleGoalClear = useCallback(() => {
+    fetch('/api/goal', { method: 'DELETE' })
+      .then(() => setGoal(null))
+      .catch(() => {});
   }, []);
 
   return (
@@ -697,8 +911,12 @@ function Flow() {
         onAddObject={handleToolbarAddObject}
         onConnect={handleToolbarConnect}
         onSidebar={handleToolbarSidebar}
+        onGoal={handleToolbarGoal}
+        onSuggest={handleToolbarSuggest}
         connectMode={connectMode}
         dialogueActive={showDialogue}
+        goalPopulated={!!goal}
+        hasSuggestion={!!suggestion}
       />
 
       <WelcomeHint visible={!showDialogue && nodes.length === 0 && emergingObjects.length === 0} />
@@ -717,6 +935,64 @@ function Flow() {
         />
       )}
 
+      {showGoalDialog && (
+        <GoalDialog
+          goal={goal}
+          onClose={() => setShowGoalDialog(false)}
+          onSave={handleGoalSave}
+          onClear={handleGoalClear}
+        />
+      )}
+
+      {showSuggestion && (suggestion || suggestLoading) && (
+        <SuggestionPopup
+          suggestion={suggestion}
+          onClose={() => setShowSuggestion(false)}
+          onResuggest={triggerSuggest}
+          onApply={handleApplySuggestion}
+          loading={suggestLoading}
+        />
+      )}
+
+      {/* Reasoning thinking overlay */}
+      {reasoningActive && (
+        <div
+          style={{
+            position: 'fixed',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'rgba(35, 30, 24, 0.95)',
+            border: '1px solid rgba(232, 196, 154, 0.15)',
+            borderRadius: 10,
+            padding: '20px 28px',
+            zIndex: 1000,
+            backdropFilter: 'blur(24px)',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+            textAlign: 'center',
+            minWidth: 220,
+          }}
+        >
+          <div style={{
+            display: 'inline-block',
+            width: 24,
+            height: 24,
+            border: '2px solid rgba(232, 196, 154, 0.2)',
+            borderTopColor: '#e8c49a',
+            borderRadius: '50%',
+            animation: 'threshold-spin 0.8s linear infinite',
+            marginBottom: 12,
+          }} />
+          <div style={{ color: '#e8c49a', fontSize: 13, marginBottom: 4 }}>
+            {reasoningActive.operation}
+          </div>
+          <div style={{ color: '#8a7460', fontSize: 11 }}>
+            {reasoningActive.label}
+          </div>
+          <style>{`@keyframes threshold-spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
       {/* Emerging objects orbit around centre of screen */}
       {emergingObjects.map((obj, index) => (
         <EmergingObject
@@ -729,7 +1005,7 @@ function Flow() {
         />
       ))}
 
-      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} />
+      <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} metrics={metrics} onNodeFocus={handleNodeFocus} onGapClick={handleGapClick} />
 
       {/* Connect mode status bar */}
       {connectMode && (

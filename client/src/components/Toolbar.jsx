@@ -1,8 +1,15 @@
-export default function Toolbar({ onDialogue, onAddObject, onConnect, onSidebar, connectMode, dialogueActive }) {
+export default function Toolbar({
+  onDialogue, onAddObject, onConnect, onSidebar,
+  onGoal, onSuggest,
+  connectMode, dialogueActive,
+  goalPopulated, hasSuggestion,
+}) {
   const buttons = [
     { key: 'dialogue', icon: '\u25C7', label: 'Dialogue', active: dialogueActive, onClick: onDialogue, title: 'Open dialogue with Claude' },
     { key: 'add', icon: '+', label: 'Add Object', onClick: onAddObject, title: 'Create a new object' },
     { key: 'connect', icon: '\u2014', label: 'Connect', active: connectMode, onClick: onConnect, title: 'Draw connection between objects' },
+    { key: 'goal', icon: '\u2605', label: 'Goal', active: goalPopulated, onClick: onGoal, title: goalPopulated ? 'View/edit goal' : 'Set a goal' },
+    { key: 'suggest', icon: '!', label: 'Suggest', onClick: onSuggest, title: 'Get a suggestion', notification: hasSuggestion },
     { key: 'sidebar', icon: '\u2630', label: 'Menu', onClick: onSidebar, title: 'Toggle sidebar' },
   ];
 
@@ -41,10 +48,22 @@ export default function Toolbar({ onDialogue, onAddObject, onConnect, onSidebar,
             alignItems: 'center',
             gap: 6,
             transition: 'all 0.15s ease',
+            position: 'relative',
           }}
         >
           <span style={{ fontSize: 14 }}>{btn.icon}</span>
           {btn.label}
+          {btn.notification && (
+            <span style={{
+              position: 'absolute',
+              top: 2,
+              right: 4,
+              width: 6,
+              height: 6,
+              borderRadius: '50%',
+              background: '#e8c49a',
+            }} />
+          )}
         </button>
       ))}
     </div>

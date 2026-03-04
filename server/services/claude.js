@@ -1,7 +1,8 @@
-import { spawn } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { loadGoal } from './storage.js';
+import { runClaudeCli } from './claude-cli.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = path.join(__dirname, '..', 'data', 'logs');
@@ -20,7 +21,7 @@ Format:
     {
       "label": "short 3-8 word name",
       "summary": "1-2 sentence description",
-      "type": "concept|question|tension|claim|metaphor|relation|goal|evidence|assumption|pattern|principle",
+      "type": "concept|question|tension|claim|metaphor|relation|evidence|assumption|pattern|principle",
       "confidence": 0.0-1.0
     }
   ],
@@ -77,6 +78,13 @@ async function appendToLog(sessionId, userText, claudeResponse) {
 }
 
 export async function sendToClaude(userText, sessionId, existingObjects = []) {
+  // Load goal for context
+  const goal = await loadGoal().catch(() => null);
+  let goalBlock = '';
+  if (goal) {
+    goalBlock = `\n\nThe user's current goal: "${goal.text}" (target output format: ${goal.outputFormat}). Keep this goal in mind when responding and extracting objects. Prioritize relevance to this goal.\n`;
+  }
+
   let contextBlock = '';
   if (existingObjects.length > 0) {
     const objectList = existingObjects
@@ -94,48 +102,9 @@ export async function sendToClaude(userText, sessionId, existingObjects = []) {
       '\n\n';
   }
 
-  const fullPrompt = `${SYSTEM_PROMPT}${contextBlock}${historyBlock}User: ${userText}`;
+  const fullPrompt = `${SYSTEM_PROMPT}${goalBlock}${contextBlock}${historyBlock}User: ${userText}`;
 
-  const rawResponse = await new Promise((resolve, reject) => {
-    // Unset CLAUDECODE env var to allow spawning from within a Claude Code session
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
-
-    // Pipe prompt via stdin instead of command-line arg (avoids length limits)
-    const proc = spawn('claude', ['-p'], {
-      shell: true,
-      env,
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (data) => {
-      stdout += data.toString();
-    });
-
-    proc.stderr.on('data', (data) => {
-      stderr += data.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        console.error('Claude CLI error (code ' + code + '):', stderr);
-        reject(new Error(`Claude CLI exited with code ${code}: ${stderr}`));
-        return;
-      }
-      resolve(stdout.trim());
-    });
-
-    proc.on('error', (err) => {
-      console.error('Failed to spawn Claude CLI:', err.message);
-      reject(err);
-    });
-
-    // Write prompt to stdin and close
-    proc.stdin.write(fullPrompt);
-    proc.stdin.end();
-  });
+  const rawResponse = await runClaudeCli(fullPrompt);
 
   // Store in history + log to file
   addTurn(sessionId, userText, rawResponse);

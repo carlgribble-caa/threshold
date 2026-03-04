@@ -1,4 +1,5 @@
-import { spawn } from 'child_process';
+import { loadGoal } from './storage.js';
+import { runClaudeCli } from './claude-cli.js';
 
 // Operation-specific prompts that tell Claude what reasoning to perform
 const OPERATION_PROMPTS = {
@@ -235,14 +236,13 @@ export const OPERATIONS_FOR_TYPE = {
   claim:      ['challenge', 'deduce', 'abduct'],
   metaphor:   ['analogize', 'explode', 'bridge'],
   relation:   ['explode', 'bridge'],
-  goal:       ['deduce', 'explode', 'bridge'],
   evidence:   ['induce', 'abduct', 'challenge'],
   assumption: ['challenge', 'abduct', 'deduce'],
   pattern:    ['induce', 'analogize', 'explode'],
   principle:  ['deduce', 'challenge', 'analogize'],
 };
 
-function buildContext(existingObjects, edges, targetId) {
+function buildContext(existingObjects, edges, targetId, goal) {
   const neighbors = new Set();
   const relevantEdges = [];
 
@@ -269,6 +269,10 @@ function buildContext(existingObjects, edges, targetId) {
       lines.push(`- "${labelMap[e.source] || e.source}" --[${e.label || ''}]--> "${labelMap[e.target] || e.target}"`);
     }
   }
+  if (goal) {
+    lines.push(`\nUser's goal: "${goal.text}" (target format: ${goal.outputFormat})`);
+  }
+
   return lines.length > 0 ? lines.join('\n') : '';
 }
 
@@ -276,37 +280,11 @@ export async function executeReasoning(operation, targetObject, existingObjects,
   const op = OPERATION_PROMPTS[operation];
   if (!op) throw new Error(`Unknown operation: ${operation}`);
 
-  const context = buildContext(existingObjects, edges, targetObject.id);
+  const goal = await loadGoal().catch(() => null);
+  const context = buildContext(existingObjects, edges, targetObject.id, goal);
   const fullPrompt = op.prompt(targetObject, context);
 
-  const rawResponse = await new Promise((resolve, reject) => {
-    const env = { ...process.env };
-    delete env.CLAUDECODE;
-
-    const proc = spawn('claude', ['-p'], { shell: true, env });
-    let stdout = '';
-    let stderr = '';
-
-    proc.stdout.on('data', (d) => { stdout += d.toString(); });
-    proc.stderr.on('data', (d) => { stderr += d.toString(); });
-
-    proc.on('close', (code) => {
-      if (code !== 0) {
-        console.error(`Reasoning CLI error (code ${code}):`, stderr);
-        reject(new Error(`Claude CLI exited with code ${code}`));
-        return;
-      }
-      resolve(stdout.trim());
-    });
-
-    proc.on('error', (err) => {
-      console.error('Failed to spawn Claude CLI for reasoning:', err.message);
-      reject(err);
-    });
-
-    proc.stdin.write(fullPrompt);
-    proc.stdin.end();
-  });
+  const rawResponse = await runClaudeCli(fullPrompt);
 
   return rawResponse;
 }

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 
 const OBJECT_TYPES = [
   'concept', 'question', 'tension', 'claim', 'metaphor',
-  'relation', 'goal', 'evidence', 'assumption', 'pattern', 'principle',
+  'relation', 'evidence', 'assumption', 'pattern', 'principle',
 ];
 
 export default function AddObjectModal({ onClose, onCreate }) {
