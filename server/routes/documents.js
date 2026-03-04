@@ -175,6 +175,32 @@ documentsRouter.post('/approve/:docKey', async (req, res) => {
       pipeline.stage = 'generation-plan';
     } else if (docKey === 'generation-plan') {
       pipeline.stage = 'doc-parts';
+      await savePipeline(pipeline);
+
+      // Auto-generate all doc parts, then assemble final
+      try {
+        const genPlanContent = await loadDocument('generation-plan');
+        const partCount = (genPlanContent.match(/^## Doc Part \d+/gm) || []).length;
+        const numParts = Math.max(partCount, 1);
+
+        for (let i = 1; i <= numParts; i++) {
+          await generateDocPart(i);
+        }
+
+        await assembleFinal();
+
+        // Reload pipeline and set final to ready
+        const updated = await loadPipeline();
+        updated.documents['final'].status = 'ready';
+        updated.stage = 'final';
+        await savePipeline(updated);
+        return res.json(updated);
+      } catch (genErr) {
+        const errPipeline = await loadPipeline();
+        errPipeline.error = `Doc part generation failed: ${genErr.message}`;
+        await savePipeline(errPipeline);
+        return res.json(errPipeline);
+      }
     } else if (docKey === 'final') {
       pipeline.stage = 'complete';
     }
