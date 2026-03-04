@@ -2,60 +2,38 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 
 const PAUSE_DELAY = 3500; // 3.5 seconds pause detection
 
-export default function DialogueOverlay({ onActiveChange, onObjectsEmerged, onConnectionsProposed }) {
+export default function DialogueOverlay({ visible, onClose, onObjectsEmerged, onConnectionsProposed }) {
   const [userText, setUserText] = useState('');
   const [claudeResponse, setClaudeResponse] = useState('');
-  const [visible, setVisible] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const pauseTimer = useRef(null);
   const fadeTimer = useRef(null);
   const textareaRef = useRef(null);
 
-  // Notify parent of visibility changes
+  // Focus textarea when visible
   useEffect(() => {
-    onActiveChange?.(visible);
-  }, [visible, onActiveChange]);
-
-  // Focus textarea when it becomes visible
-  useEffect(() => {
-    if (visible && textareaRef.current) {
-      textareaRef.current.focus();
+    if (visible) {
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    } else {
+      // Reset state when hidden
+      setUserText('');
+      setClaudeResponse('');
+      setError(null);
+      if (pauseTimer.current) clearTimeout(pauseTimer.current);
+      if (fadeTimer.current) clearTimeout(fadeTimer.current);
     }
   }, [visible]);
 
-  // Global keydown listener — show overlay when user starts typing
+  // Escape to close
   useEffect(() => {
+    if (!visible) return;
     const handleKeyDown = (e) => {
-      // Ignore modifier-only keys, Escape, Tab, function keys
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (['Escape', 'Tab', 'CapsLock', 'Shift', 'Control', 'Alt', 'Meta',
-           'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12',
-           'ArrowUp','ArrowDown','ArrowLeft','ArrowRight'
-          ].includes(e.key)) {
-        if (e.key === 'Escape' && visible) {
-          setVisible(false);
-          setUserText('');
-          setClaudeResponse('');
-          setError(null);
-        }
-        return;
-      }
-
-      if (!visible) {
-        setVisible(true);
-      }
-
-      // Clear fade timer on any typing
-      if (fadeTimer.current) {
-        clearTimeout(fadeTimer.current);
-        fadeTimer.current = null;
-      }
+      if (e.key === 'Escape') onClose?.();
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [visible]);
+  }, [visible, onClose]);
 
   // Handle text changes — reset pause timer
   const handleInput = (e) => {
@@ -63,10 +41,8 @@ export default function DialogueOverlay({ onActiveChange, onObjectsEmerged, onCo
     setUserText(newText);
     setError(null);
 
-    // Reset pause timer
-    if (pauseTimer.current) {
-      clearTimeout(pauseTimer.current);
-    }
+    if (pauseTimer.current) clearTimeout(pauseTimer.current);
+    if (fadeTimer.current) clearTimeout(fadeTimer.current);
 
     if (newText.trim()) {
       pauseTimer.current = setTimeout(() => {
@@ -105,11 +81,9 @@ export default function DialogueOverlay({ onActiveChange, onObjectsEmerged, onCo
         onConnectionsProposed?.(data.connections, data.objects || []);
       }
 
-      // Start fade timer after response
+      // Auto-fade after response
       fadeTimer.current = setTimeout(() => {
-        setVisible(false);
-        setUserText('');
-        setClaudeResponse('');
+        onClose?.();
       }, 15000);
     } catch (err) {
       setError('Backend not running — start the server to connect to Claude');
@@ -117,7 +91,7 @@ export default function DialogueOverlay({ onActiveChange, onObjectsEmerged, onCo
     } finally {
       setSending(false);
     }
-  }, [userText]);
+  }, [userText, onClose]);
 
   if (!visible) return null;
 

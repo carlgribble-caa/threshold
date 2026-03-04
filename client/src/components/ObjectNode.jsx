@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { Handle, Position } from '@xyflow/react';
 
 const typeColors = {
@@ -36,13 +36,90 @@ function ConfidenceDots({ confidence, color }) {
   );
 }
 
+// Operations available per type (mirrored from server)
+const opsForType = {
+  concept:    ['explode', 'bridge', 'analogize', 'challenge', 'induce'],
+  question:   ['abduct', 'bridge', 'deduce'],
+  tension:    ['synthesize', 'challenge', 'bridge'],
+  claim:      ['challenge', 'deduce', 'abduct'],
+  metaphor:   ['analogize', 'explode', 'bridge'],
+  relation:   ['explode', 'bridge'],
+  goal:       ['deduce', 'explode', 'bridge'],
+  evidence:   ['induce', 'abduct', 'challenge'],
+  assumption: ['challenge', 'abduct', 'deduce'],
+  pattern:    ['induce', 'analogize', 'explode'],
+  principle:  ['deduce', 'challenge', 'analogize'],
+};
+
+const opStyle = (color) => ({
+  background: `${color}12`,
+  border: `1px solid ${color}25`,
+  borderRadius: 4,
+  color: `${color}cc`,
+  fontSize: 10,
+  padding: '4px 8px',
+  cursor: 'pointer',
+  letterSpacing: '0.03em',
+  textTransform: 'capitalize',
+});
+
+const actionBtnStyle = (color) => ({
+  background: `${color}10`,
+  border: `1px solid ${color}20`,
+  borderRadius: 4,
+  fontSize: 10,
+  padding: '4px 10px',
+  cursor: 'pointer',
+  letterSpacing: '0.04em',
+});
+
 function ObjectNode({ data }) {
-  const { label, type, status, summary, confidence, expanded, onDelete } = data;
+  const { label, type, status, summary, confidence, expanded, onDelete, onReason, onEdit, reasoning } = data;
   const color = typeColors[type] || '#d4a574';
   const isEmerging = status === 'emerging';
   const conf = confidence || 0.5;
 
-  // Ambient glow: scales with confidence; claims get a warm warning tint
+  const [editMode, setEditMode] = useState(false);
+  const [editLabel, setEditLabel] = useState(label);
+  const [editSummary, setEditSummary] = useState(summary || '');
+  const labelRef = useRef(null);
+
+  // Sync edit fields when data changes externally
+  useEffect(() => { setEditLabel(label); }, [label]);
+  useEffect(() => { setEditSummary(summary || ''); }, [summary]);
+
+  // Focus label input when entering edit mode
+  useEffect(() => {
+    if (editMode && labelRef.current) {
+      labelRef.current.focus();
+      labelRef.current.select();
+    }
+  }, [editMode]);
+
+  // Exit edit mode when node collapses
+  useEffect(() => {
+    if (!expanded && editMode) {
+      handleSave();
+      setEditMode(false);
+    }
+  }, [expanded]);
+
+  const handleSave = () => {
+    const newLabel = editLabel.trim();
+    const newSummary = editSummary.trim();
+    const updates = {};
+    if (newLabel && newLabel !== label) updates.label = newLabel;
+    if (newSummary !== (summary || '')) updates.summary = newSummary;
+    if (Object.keys(updates).length > 0) onEdit?.(updates);
+  };
+
+  const handleDone = (e) => {
+    e.stopPropagation();
+    handleSave();
+    setEditMode(false);
+  };
+
+  // Ambient glow: scales with confidence
   const glowIntensity = Math.round(conf * 18);
   const isClaim = type === 'claim';
   const isTension = type === 'tension';
@@ -52,24 +129,28 @@ function ObjectNode({ data }) {
       ? `0 0 24px ${color}15, 0 4px 20px rgba(0,0,0,0.4)`
       : `0 0 ${glowIntensity}px ${color}${Math.round(conf * 12).toString(16).padStart(2, '0')}`;
 
-  // Claims/tensions get a subtle left accent bar
-  const accentBorder = (isClaim || isTension) && !isEmerging
-    ? { borderLeft: `2px solid ${color}60` }
-    : {};
+  const hasAccent = (isClaim || isTension) && !isEmerging;
+  const bColor = `${color}${expanded ? '60' : '40'}`;
+  const bStyle = isEmerging ? 'dashed' : 'solid';
+
+  const shadows = [
+    hasAccent ? `inset 2px 0 0 ${color}60` : null,
+    ambientGlow !== 'none' ? ambientGlow : null,
+  ].filter(Boolean).join(', ') || 'none';
 
   return (
     <div
+      onClick={editMode ? (e) => e.stopPropagation() : undefined}
       style={{
         width: expanded ? 260 : 200,
         padding: expanded ? 16 : 12,
         background: isEmerging ? 'rgba(20, 18, 15, 0.5)' : 'rgba(20, 18, 15, 0.9)',
-        border: `1px ${isEmerging ? 'dashed' : 'solid'} ${color}${expanded ? '60' : '40'}`,
+        border: `1px ${bStyle} ${bColor}`,
         borderRadius: expanded ? 12 : 8,
         color,
         opacity: isEmerging ? 0.7 : 1,
-        boxShadow: ambientGlow,
+        boxShadow: shadows,
         transition: 'width 0.2s ease, padding 0.2s ease, box-shadow 0.3s ease, border-radius 0.2s ease',
-        ...accentBorder,
       }}
     >
       <Handle id="top" type="source" position={Position.Top} style={handleStyle(color)} />
@@ -88,47 +169,140 @@ function ObjectNode({ data }) {
       </div>
 
       {/* Label */}
-      <div style={{ fontSize: expanded ? 15 : 13, fontWeight: 500, lineHeight: 1.3 }}>{label}</div>
+      {expanded && editMode ? (
+        <input
+          ref={labelRef}
+          className="nodrag"
+          value={editLabel}
+          onChange={(e) => setEditLabel(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => { if (e.key === 'Escape') handleDone(e); e.stopPropagation(); }}
+          style={{
+            fontSize: 15,
+            fontWeight: 500,
+            lineHeight: 1.3,
+            color,
+            background: 'rgba(10, 10, 10, 0.6)',
+            border: `1px solid ${color}40`,
+            borderRadius: 4,
+            padding: '4px 6px',
+            outline: 'none',
+            width: '100%',
+            fontFamily: 'inherit',
+          }}
+        />
+      ) : (
+        <div style={{ fontSize: expanded ? 15 : 13, fontWeight: 500, lineHeight: 1.3 }}>{label}</div>
+      )}
 
       {/* Expanded content */}
       {expanded && (
         <>
-          {summary && (
-            <div style={{
-              fontSize: 11,
-              color: `${color}99`,
-              marginTop: 10,
-              lineHeight: 1.5,
-              borderTop: `1px solid ${color}15`,
-              paddingTop: 10,
-            }}>
-              {summary}
-            </div>
-          )}
-
-          {/* Actions */}
+          {/* Summary */}
           <div style={{
-            display: 'flex',
-            gap: 6,
-            marginTop: 12,
+            marginTop: 10,
             paddingTop: 10,
             borderTop: `1px solid ${color}15`,
           }}>
+            {editMode ? (
+              <textarea
+                className="nodrag"
+                value={editSummary}
+                onChange={(e) => setEditSummary(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => { if (e.key === 'Escape') handleDone(e); e.stopPropagation(); }}
+                placeholder="Add description..."
+                rows={3}
+                style={{
+                  fontSize: 11,
+                  color: `${color}99`,
+                  lineHeight: 1.5,
+                  background: 'rgba(10, 10, 10, 0.6)',
+                  border: `1px solid ${color}40`,
+                  borderRadius: 4,
+                  padding: '4px 6px',
+                  outline: 'none',
+                  width: '100%',
+                  fontFamily: 'inherit',
+                  resize: 'vertical',
+                }}
+              />
+            ) : (
+              <div style={{ fontSize: 11, color: `${color}99`, lineHeight: 1.5 }}>
+                {summary || <span style={{ opacity: 0.4, fontStyle: 'italic' }}>no description</span>}
+              </div>
+            )}
+          </div>
+
+          {/* Reasoning operations */}
+          {!editMode && (
+            <div style={{
+              marginTop: 12,
+              paddingTop: 10,
+              borderTop: `1px solid ${color}15`,
+            }}>
+              <div style={{ fontSize: 9, color: `${color}50`, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                Reason
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {(opsForType[type] || ['challenge', 'bridge']).map((op) => (
+                  <button
+                    key={op}
+                    disabled={reasoning}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReason?.(op);
+                    }}
+                    style={{
+                      ...opStyle(color),
+                      opacity: reasoning ? 0.4 : 1,
+                      cursor: reasoning ? 'wait' : 'pointer',
+                    }}
+                  >
+                    {op}
+                  </button>
+                ))}
+              </div>
+              {reasoning && (
+                <div style={{ fontSize: 10, color: `${color}60`, marginTop: 6, fontStyle: 'italic' }}>
+                  reasoning...
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Actions: Edit / Done + Delete */}
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: `1px solid ${color}10`,
+          }}>
+            {editMode ? (
+              <button
+                onClick={handleDone}
+                style={{ ...actionBtnStyle(color), color: '#7cb09e' }}
+              >
+                Done
+              </button>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditMode(true);
+                }}
+                style={{ ...actionBtnStyle(color), color: `${color}cc` }}
+              >
+                Edit
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete?.();
               }}
-              style={{
-                background: `${color}10`,
-                border: `1px solid ${color}20`,
-                borderRadius: 4,
-                color: '#e8a08a',
-                fontSize: 10,
-                padding: '4px 10px',
-                cursor: 'pointer',
-                letterSpacing: '0.04em',
-              }}
+              style={{ ...actionBtnStyle(color), color: '#e8a08a' }}
             >
               Delete
             </button>

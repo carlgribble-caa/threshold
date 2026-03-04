@@ -9,12 +9,19 @@ export function extractObjects(rawResponse) {
     suggestions: [],
   };
 
-  // Look for <threshold-extract> block
-  const extractMatch = rawResponse.match(/<threshold-extract>([\s\S]*?)<\/threshold-extract>/);
+  // Look for <threshold-extract> block, or fallback to ```json code fences
+  let extractMatch = rawResponse.match(/<threshold-extract>([\s\S]*?)<\/threshold-extract>/);
+  if (!extractMatch) {
+    // Fallback: Claude sometimes responds with ```json ... ``` instead
+    extractMatch = rawResponse.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  }
 
   if (extractMatch) {
     // Remove the extraction block from the dialogue text
-    result.dialogue = rawResponse.replace(/<threshold-extract>[\s\S]*?<\/threshold-extract>/, '').trim();
+    result.dialogue = rawResponse
+      .replace(/<threshold-extract>[\s\S]*?<\/threshold-extract>/, '')
+      .replace(/```(?:json)?\s*\n?[\s\S]*?```/, '')
+      .trim();
 
     try {
       const extracted = JSON.parse(extractMatch[1]);

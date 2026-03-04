@@ -20,32 +20,10 @@ export default function Sidebar({ open, onToggle, nodes = [], edges = [], onRese
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
 
+  if (!open) return null;
+
   return (
     <>
-      {/* Hamburger menu button — top left */}
-      {!open && (
-        <button
-          onClick={onToggle}
-          style={{
-            position: 'fixed',
-            top: 16,
-            left: 16,
-            zIndex: 960,
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 8,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 4,
-          }}
-        >
-          <span style={{ display: 'block', width: 20, height: 2, background: '#8a7460', borderRadius: 1 }} />
-          <span style={{ display: 'block', width: 20, height: 2, background: '#8a7460', borderRadius: 1 }} />
-          <span style={{ display: 'block', width: 20, height: 2, background: '#8a7460', borderRadius: 1 }} />
-        </button>
-      )}
-
       {/* Sidebar panel */}
       {open && (
         <div

@@ -7,6 +7,9 @@ import Sidebar from './components/Sidebar';
 import ObjectNode from './components/ObjectNode';
 import GoalNode from './components/GoalNode';
 import ProposedEdge from './components/ProposedEdge';
+import ConfirmedEdge from './components/ConfirmedEdge';
+import Toolbar from './components/Toolbar';
+import AddObjectModal from './components/AddObjectModal';
 
 const nodeTypes = {
   object: ObjectNode,
@@ -15,6 +18,7 @@ const nodeTypes = {
 
 const edgeTypes = {
   proposed: ProposedEdge,
+  confirmed: ConfirmedEdge,
 };
 
 // Node dimensions (approximate) for handle position calculation
@@ -22,11 +26,9 @@ const NODE_W = { object: 200, goal: 220 };
 const NODE_H_DEFAULT = 100;
 
 // Pick the best source/target handle pair based on relative node positions.
-// Minimises inflection by choosing the side of each node that faces the other.
 function bestHandles(srcNode, tgtNode) {
   const sw = NODE_W[srcNode.type] || 200;
   const tw = NODE_W[tgtNode.type] || 200;
-  // Use measured height if available, else default
   const sh = srcNode.measured?.height || NODE_H_DEFAULT;
   const th = tgtNode.measured?.height || NODE_H_DEFAULT;
 
@@ -37,24 +39,19 @@ function bestHandles(srcNode, tgtNode) {
 
   const dx = tx - sx;
   const dy = ty - sy;
-  const angle = Math.atan2(dy, dx) * (180 / Math.PI); // -180 to 180
+  const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 
-  // Pick handle based on angle quadrant
   let sourceHandle, targetHandle;
   if (angle >= -45 && angle < 45) {
-    // Target is to the right
     sourceHandle = 'right';
     targetHandle = 'left';
   } else if (angle >= 45 && angle < 135) {
-    // Target is below
     sourceHandle = 'bottom';
     targetHandle = 'top';
   } else if (angle >= -135 && angle < -45) {
-    // Target is above
     sourceHandle = 'top';
     targetHandle = 'bottom';
   } else {
-    // Target is to the left
     sourceHandle = 'left';
     targetHandle = 'right';
   }
@@ -62,9 +59,6 @@ function bestHandles(srcNode, tgtNode) {
   return { sourceHandle, targetHandle };
 }
 
-const EDGE_STYLE = { stroke: '#8a746080', strokeWidth: 1 };
-const EDGE_LABEL_STYLE = { fill: '#8a7460', fontSize: 10 };
-const EDGE_LABEL_BG = { fill: '#0a0a0a', fillOpacity: 0.8 };
 
 function WelcomeHint({ visible }) {
   if (!visible) return null;
@@ -98,7 +92,7 @@ function WelcomeHint({ visible }) {
         lineHeight: 1.8,
         opacity: 0.7,
       }}>
-        start typing to begin thinking
+        click ◇ dialogue to begin thinking
       </div>
     </div>
   );
@@ -108,11 +102,27 @@ function Flow() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [dialogueActive, setDialogueActive] = useState(false);
+  const [showDialogue, setShowDialogue] = useState(false);
+  const [showAddObject, setShowAddObject] = useState(false);
+  const [connectMode, setConnectMode] = useState(false);
+  const [connectSource, setConnectSource] = useState(null);
   const [emergingObjects, setEmergingObjects] = useState([]);
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, setCenter, getZoom } = useReactFlow();
   const saveTimers = useRef({});
-  const edgeCallbacksRef = useRef({ onConfirm: null, onReject: null });
+  const edgeCallbacksRef = useRef({ onConfirm: null, onReject: null, onEditLabel: null });
+
+  // Escape exits connect mode
+  useEffect(() => {
+    if (!connectMode) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setConnectMode(false);
+        setConnectSource(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connectMode]);
 
   // Load persisted objects and edges on mount
   useEffect(() => {
@@ -158,13 +168,11 @@ function Flow() {
                   data: {
                     onConfirm: (id) => edgeCallbacksRef.current.onConfirm?.(id),
                     onReject: (id) => edgeCallbacksRef.current.onReject?.(id),
+                    onEditLabel: (id, newLabel) => edgeCallbacksRef.current.onEditLabel?.(id, newLabel),
                   },
                 }
               : {
-                  type: 'default',
-                  style: EDGE_STYLE,
-                  labelStyle: EDGE_LABEL_STYLE,
-                  labelBgStyle: EDGE_LABEL_BG,
+                  type: 'confirmed',
                 }
             ),
           };
@@ -221,7 +229,6 @@ function Flow() {
   const handleConnectionsProposed = useCallback((connections, newObjects) => {
     setNodes((currentNodes) => {
       setEdges((currentEdges) => {
-        // Build label→id map from all crystallized nodes + newly emerging objects
         const labelMap = {};
         currentNodes.forEach((n) => { labelMap[n.data.label.toLowerCase()] = n.id; });
         newObjects.forEach((o) => { labelMap[o.label.toLowerCase()] = o.id; });
@@ -235,7 +242,6 @@ function Flow() {
           const edgeId = `${sourceId}-${targetId}`;
           if (currentEdges.some((e) => e.id === edgeId)) continue;
 
-          // Find nodes to compute best handles
           const srcNode = currentNodes.find((n) => n.id === sourceId);
           const tgtNode = currentNodes.find((n) => n.id === targetId);
           const handles = srcNode && tgtNode ? bestHandles(srcNode, tgtNode) : { sourceHandle: 'bottom', targetHandle: 'top' };
@@ -251,12 +257,12 @@ function Flow() {
             data: {
               onConfirm: (id) => edgeCallbacksRef.current.onConfirm?.(id),
               onReject: (id) => edgeCallbacksRef.current.onReject?.(id),
+              onEditLabel: (id, newLabel) => edgeCallbacksRef.current.onEditLabel?.(id, newLabel),
             },
           });
         }
 
         if (newEdges.length > 0) {
-          // Persist edges to backend
           const allEdges = [...currentEdges, ...newEdges];
           fetch('/api/graph', {
             method: 'PUT',
@@ -273,13 +279,12 @@ function Flow() {
         }
         return currentEdges;
       });
-      return currentNodes; // no change to nodes
+      return currentNodes;
     });
   }, [setNodes, setEdges]);
 
   // Save position + recalculate edge handles after user drags a node
   const handleNodeDragStop = useCallback((_event, draggedNode) => {
-    // Debounced position save
     if (saveTimers.current[draggedNode.id]) clearTimeout(saveTimers.current[draggedNode.id]);
     saveTimers.current[draggedNode.id] = setTimeout(() => {
       fetch(`/api/objects/${draggedNode.id}`, {
@@ -289,7 +294,6 @@ function Flow() {
       }).catch(() => {});
     }, 500);
 
-    // Recalculate handles for all edges connected to this node
     setNodes((currentNodes) => {
       const nodeMap = {};
       currentNodes.forEach((n) => { nodeMap[n.id] = n; });
@@ -335,7 +339,6 @@ function Flow() {
     setNodes((nds) => nds.filter((n) => n.id !== nodeId));
     setEdges((eds) => {
       const remaining = eds.filter((e) => e.source !== nodeId && e.target !== nodeId);
-      // Persist updated edges
       fetch('/api/graph', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -351,6 +354,26 @@ function Flow() {
     fetch(`/api/objects/${nodeId}`, { method: 'DELETE' }).catch(() => {});
   }, [setNodes, setEdges]);
 
+  // Edit a node's label or summary
+  const handleEditNode = useCallback((nodeId, updates) => {
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.id !== nodeId) return n;
+        const newData = { ...n.data, ...updates };
+        // Persist to backend
+        fetch(`/api/objects/${nodeId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates),
+        }).catch(() => {});
+        return { ...n, data: newData };
+      })
+    );
+  }, [setNodes]);
+
+  const handleEditNodeRef = useRef(handleEditNode);
+  handleEditNodeRef.current = handleEditNode;
+
   const [contextMenu, setContextMenu] = useState(null);
 
   const handleNodeContextMenu = useCallback((event, node) => {
@@ -363,7 +386,7 @@ function Flow() {
     setEdges((eds) => {
       const updated = eds.map((e) =>
         e.id === edgeId
-          ? { ...e, type: 'default', animated: false, data: {}, style: EDGE_STYLE, labelStyle: EDGE_LABEL_STYLE, labelBgStyle: EDGE_LABEL_BG }
+          ? { ...e, type: 'confirmed', animated: false, data: {} }
           : e
       );
       fetch('/api/graph', {
@@ -398,13 +421,183 @@ function Flow() {
     });
   }, [setEdges]);
 
+  // Edit an edge label
+  const handleEditEdgeLabel = useCallback((edgeId, newLabel) => {
+    setEdges((eds) => {
+      const updated = eds.map((e) =>
+        e.id === edgeId ? { ...e, label: newLabel } : e
+      );
+      fetch('/api/graph', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          edges: updated.map((e) => ({
+            id: e.id, source: e.source, target: e.target,
+            label: e.label, status: e.type === 'proposed' ? 'proposed' : 'confirmed',
+          })),
+        }),
+      }).catch(() => {});
+      return updated;
+    });
+  }, [setEdges]);
+
   // Keep ref up to date for use in edge creation
   edgeCallbacksRef.current.onConfirm = handleConfirmEdge;
   edgeCallbacksRef.current.onReject = handleRejectEdge;
+  edgeCallbacksRef.current.onEditLabel = handleEditEdgeLabel;
 
-  // Click node to expand inline; click again or pane to collapse
+  // Manual connection: create a proposed edge between two nodes
+  const handleManualConnect = useCallback((sourceId, targetId) => {
+    setNodes((currentNodes) => {
+      const srcNode = currentNodes.find((n) => n.id === sourceId);
+      const tgtNode = currentNodes.find((n) => n.id === targetId);
+      if (!srcNode || !tgtNode) return currentNodes;
+
+      const handles = bestHandles(srcNode, tgtNode);
+      const edgeId = `${sourceId}-${targetId}`;
+
+      setEdges((eds) => {
+        // Check if edge already exists in either direction
+        if (eds.some((e) => e.id === edgeId || e.id === `${targetId}-${sourceId}`)) return eds;
+
+        const newEdge = {
+          id: edgeId,
+          source: sourceId,
+          target: targetId,
+          sourceHandle: handles.sourceHandle,
+          targetHandle: handles.targetHandle,
+          label: '',
+          type: 'proposed',
+          data: {
+            onConfirm: (id) => edgeCallbacksRef.current.onConfirm?.(id),
+            onReject: (id) => edgeCallbacksRef.current.onReject?.(id),
+            onEditLabel: (id, newLabel) => edgeCallbacksRef.current.onEditLabel?.(id, newLabel),
+          },
+        };
+
+        const updated = [...eds, newEdge];
+        fetch('/api/graph', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            edges: updated.map((e) => ({
+              id: e.id, source: e.source, target: e.target,
+              label: e.label, status: e.type === 'proposed' ? 'proposed' : 'confirmed',
+            })),
+          }),
+        }).catch(() => {});
+        return updated;
+      });
+
+      return currentNodes;
+    });
+  }, [setNodes, setEdges]);
+
+  // Manual object creation
+  const handleCreateObject = useCallback(({ label, summary, type }) => {
+    const position = screenToFlowPosition({
+      x: window.innerWidth / 2,
+      y: window.innerHeight / 2,
+    });
+    const id = crypto.randomUUID();
+
+    const newNode = {
+      id,
+      type: type === 'goal' ? 'goal' : 'object',
+      position,
+      data: {
+        label,
+        type,
+        status: 'crystallized',
+        summary: summary || '',
+        confidence: 0.5,
+      },
+    };
+
+    setNodes((nds) => [...nds, newNode]);
+
+    fetch('/api/objects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id,
+        label,
+        summary: summary || '',
+        type,
+        status: 'crystallized',
+        confidence: 0.5,
+        position,
+        source: 'user',
+        created: new Date().toISOString(),
+        updated: new Date().toISOString(),
+      }),
+    }).catch(() => {});
+  }, [setNodes, screenToFlowPosition]);
+
+  // Execute a reasoning operation on a node
+  const handleReason = useCallback((nodeId, operation) => {
+    setNodes((nds) => {
+      const target = nds.find((n) => n.id === nodeId);
+      if (target) {
+        const nodeW = target.type === 'goal' ? 220 : 200;
+        const nodeH = target.measured?.height || 100;
+        const cx = target.position.x + nodeW / 2;
+        const cy = target.position.y + nodeH / 2;
+        setCenter(cx, cy, { zoom: getZoom(), duration: 400 });
+      }
+      return nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, reasoning: true } } : n);
+    });
+
+    fetch('/api/reasoning/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operation, targetId: nodeId }),
+    })
+      .then((r) => r.json())
+      .then((result) => {
+        setNodes((nds) =>
+          nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, reasoning: false } } : n)
+        );
+
+        if (result.objects && result.objects.length > 0) {
+          const newObjects = result.objects.map((o) => ({
+            ...o,
+            id: o.id || crypto.randomUUID(),
+            created: new Date().toISOString(),
+          }));
+          setEmergingObjects((prev) => [...prev, ...newObjects]);
+
+          if (result.connections && result.connections.length > 0) {
+            handleConnectionsProposed(result.connections, newObjects);
+          }
+        }
+      })
+      .catch(() => {
+        setNodes((nds) =>
+          nds.map((n) => n.id === nodeId ? { ...n, data: { ...n.data, reasoning: false } } : n)
+        );
+      });
+  }, [setNodes, setEmergingObjects, handleConnectionsProposed, setCenter, getZoom]);
+
+  const handleReasonRef = useRef(handleReason);
+  handleReasonRef.current = handleReason;
+
+  // Click node: in connect mode → select source/target; normal mode → expand/collapse
   const handleNodeClick = useCallback((_event, clickedNode) => {
     setContextMenu(null);
+
+    // Connect mode: select source then target
+    if (connectMode) {
+      if (!connectSource) {
+        setConnectSource(clickedNode.id);
+      } else if (clickedNode.id !== connectSource) {
+        handleManualConnect(connectSource, clickedNode.id);
+        setConnectSource(null);
+      }
+      return;
+    }
+
+    // Normal mode: expand/collapse
     setNodes((nds) =>
       nds.map((n) => {
         if (n.id === clickedNode.id) {
@@ -415,29 +608,63 @@ function Flow() {
               ...n.data,
               expanded: !wasExpanded,
               onDelete: !wasExpanded ? () => handleDeleteNode(n.id) : undefined,
+              onReason: !wasExpanded ? (op) => handleReasonRef.current(n.id, op) : undefined,
+              onEdit: !wasExpanded ? (updates) => handleEditNodeRef.current(n.id, updates) : undefined,
             },
           };
         }
-        // Collapse any other expanded node
         if (n.data.expanded) {
-          return { ...n, data: { ...n.data, expanded: false, onDelete: undefined } };
+          return { ...n, data: { ...n.data, expanded: false, onDelete: undefined, onReason: undefined, onEdit: undefined } };
         }
         return n;
       })
     );
-  }, [setNodes, handleDeleteNode]);
+  }, [setNodes, handleDeleteNode, connectMode, connectSource, handleManualConnect]);
 
   const handlePaneClick = useCallback(() => {
     setContextMenu(null);
+    // Clear connect source if in connect mode
+    if (connectMode) {
+      setConnectSource(null);
+      return;
+    }
     setNodes((nds) =>
       nds.some((n) => n.data.expanded)
-        ? nds.map((n) => n.data.expanded ? { ...n, data: { ...n.data, expanded: false, onDelete: undefined } } : n)
+        ? nds.map((n) => n.data.expanded ? { ...n, data: { ...n.data, expanded: false, onDelete: undefined, onReason: undefined, onEdit: undefined } } : n)
         : nds
     );
-  }, [setNodes]);
+  }, [setNodes, connectMode]);
 
   const handleNodeDragStart = useCallback(() => {
     setContextMenu(null);
+  }, []);
+
+  // Toolbar handlers
+  const handleToolbarDialogue = useCallback(() => {
+    setShowDialogue((v) => !v);
+    setConnectMode(false);
+    setConnectSource(null);
+    setShowAddObject(false);
+  }, []);
+
+  const handleToolbarAddObject = useCallback(() => {
+    setShowAddObject((v) => !v);
+    setConnectMode(false);
+    setConnectSource(null);
+    setShowDialogue(false);
+  }, []);
+
+  const handleToolbarConnect = useCallback(() => {
+    setConnectMode((v) => {
+      if (v) setConnectSource(null);
+      return !v;
+    });
+    setShowDialogue(false);
+    setShowAddObject(false);
+  }, []);
+
+  const handleToolbarSidebar = useCallback(() => {
+    setSidebarOpen((v) => !v);
   }, []);
 
   return (
@@ -455,6 +682,7 @@ function Flow() {
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView={false}
+        zoomOnDoubleClick={false}
         minZoom={0.1}
         maxZoom={3.0}
         defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -464,13 +692,30 @@ function Flow() {
         <Background color="transparent" />
       </ReactFlow>
 
-      <WelcomeHint visible={!dialogueActive && nodes.length === 0 && emergingObjects.length === 0} />
+      <Toolbar
+        onDialogue={handleToolbarDialogue}
+        onAddObject={handleToolbarAddObject}
+        onConnect={handleToolbarConnect}
+        onSidebar={handleToolbarSidebar}
+        connectMode={connectMode}
+        dialogueActive={showDialogue}
+      />
+
+      <WelcomeHint visible={!showDialogue && nodes.length === 0 && emergingObjects.length === 0} />
 
       <DialogueOverlay
-        onActiveChange={setDialogueActive}
+        visible={showDialogue}
+        onClose={() => setShowDialogue(false)}
         onObjectsEmerged={handleObjectsEmerged}
         onConnectionsProposed={handleConnectionsProposed}
       />
+
+      {showAddObject && (
+        <AddObjectModal
+          onClose={() => setShowAddObject(false)}
+          onCreate={handleCreateObject}
+        />
+      )}
 
       {/* Emerging objects orbit around centre of screen */}
       {emergingObjects.map((obj, index) => (
@@ -485,6 +730,38 @@ function Flow() {
       ))}
 
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} />
+
+      {/* Connect mode status bar */}
+      {connectMode && (
+        <div
+          style={{
+            position: 'fixed',
+            bottom: 24,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            background: 'rgba(25, 22, 18, 0.9)',
+            border: '1px solid rgba(232, 196, 154, 0.15)',
+            borderRadius: 8,
+            padding: '8px 16px',
+            zIndex: 900,
+            color: '#8a7460',
+            fontSize: 12,
+            letterSpacing: '0.03em',
+            backdropFilter: 'blur(12px)',
+          }}
+        >
+          {connectSource
+            ? 'click target node to complete connection'
+            : 'click a node to start connection'
+          }
+          <span
+            style={{ marginLeft: 12, color: '#e8a08a', cursor: 'pointer' }}
+            onClick={() => { setConnectMode(false); setConnectSource(null); }}
+          >
+            esc to cancel
+          </span>
+        </div>
+      )}
 
       {/* Right-click context menu */}
       {contextMenu && (

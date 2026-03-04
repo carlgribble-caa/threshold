@@ -23,8 +23,22 @@ function ConfidenceDots({ confidence }) {
   );
 }
 
+const goalOps = ['deduce', 'explode', 'bridge'];
+
+const opStyle = {
+  background: `${color}12`,
+  border: `1px solid ${color}25`,
+  borderRadius: 4,
+  color: `${color}cc`,
+  fontSize: 10,
+  padding: '4px 8px',
+  cursor: 'pointer',
+  letterSpacing: '0.03em',
+  textTransform: 'capitalize',
+};
+
 function GoalNode({ data }) {
-  const { label, summary, confidence, expanded, onDelete } = data;
+  const { label, summary, confidence, expanded, onDelete, onReason, reasoning } = data;
 
   return (
     <div
@@ -74,12 +88,48 @@ function GoalNode({ data }) {
             </div>
           )}
 
+          {/* Reasoning operations */}
           <div style={{
-            display: 'flex',
-            gap: 6,
             marginTop: 12,
             paddingTop: 10,
             borderTop: `1px solid ${color}15`,
+          }}>
+            <div style={{ fontSize: 9, color: `${color}50`, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              Reason
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {goalOps.map((op) => (
+                <button
+                  key={op}
+                  disabled={reasoning}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReason?.(op);
+                  }}
+                  style={{
+                    ...opStyle,
+                    opacity: reasoning ? 0.4 : 1,
+                    cursor: reasoning ? 'wait' : 'pointer',
+                  }}
+                >
+                  {op}
+                </button>
+              ))}
+            </div>
+            {reasoning && (
+              <div style={{ fontSize: 10, color: `${color}60`, marginTop: 6, fontStyle: 'italic' }}>
+                reasoning...
+              </div>
+            )}
+          </div>
+
+          {/* Delete */}
+          <div style={{
+            display: 'flex',
+            gap: 6,
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: `1px solid ${color}10`,
           }}>
             <button
               onClick={(e) => {
