@@ -1,0 +1,20 @@
+{
+  "name": "threshold-server",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "cors": "^2.8.5",
+    "js-yaml": "^4.1.0",
+    "uuid": "^11.1.0",
+    "graphology": "^0.25.4",
+    "graphology-metrics": "^2.2.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
