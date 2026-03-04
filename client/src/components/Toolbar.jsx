@@ -1,8 +1,8 @@
 export default function Toolbar({
   onDialogue, onAddObject, onConnect, onSidebar,
-  onGoal, onSuggest,
+  onGoal, onSuggest, onDocs,
   connectMode, dialogueActive,
-  goalPopulated, hasSuggestion,
+  goalPopulated, hasSuggestion, docsOpen,
 }) {
   const buttons = [
     { key: 'dialogue', icon: '\u25C7', label: 'Dialogue', active: dialogueActive, onClick: onDialogue, title: 'Open dialogue with Claude' },
@@ -10,6 +10,7 @@ export default function Toolbar({
     { key: 'connect', icon: '\u2014', label: 'Connect', active: connectMode, onClick: onConnect, title: 'Draw connection between objects' },
     { key: 'goal', icon: '\u2605', label: 'Goal', active: goalPopulated, onClick: onGoal, title: goalPopulated ? 'View/edit goal' : 'Set a goal' },
     { key: 'suggest', icon: '!', label: 'Suggest', onClick: onSuggest, title: 'Get a suggestion', notification: hasSuggestion },
+    { key: 'docs', icon: '\u2261', label: 'Docs', active: docsOpen, onClick: onDocs, title: 'Document generation pipeline' },
     { key: 'sidebar', icon: '\u2630', label: 'Menu', onClick: onSidebar, title: 'Toggle sidebar' },
   ];
 

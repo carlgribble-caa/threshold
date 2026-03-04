@@ -8,6 +8,9 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const OBJECTS_DIR = path.join(DATA_DIR, 'objects');
 const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 const ARCHIVES_DIR = path.join(DATA_DIR, 'archives');
+const DOCUMENTS_DIR = path.join(DATA_DIR, 'documents');
+const DOC_PARTS_DIR = path.join(DOCUMENTS_DIR, 'doc-parts');
+const PIPELINE_FILE = path.join(DOCUMENTS_DIR, 'pipeline.json');
 const GRAPH_FILE = path.join(DATA_DIR, 'graph.json');
 const GOAL_FILE = path.join(DATA_DIR, 'goal.json');
 
@@ -233,4 +236,95 @@ export async function deleteArchive(id) {
   try {
     await removeDir(archiveDir);
   } catch { /* may not exist */ }
+}
+
+// Documents — dynamic pipeline-based document generation
+
+const RATIONALE_DIR = path.join(DOCUMENTS_DIR, 'rationale');
+
+const DEFAULT_PIPELINE = {
+  stage: 'idle',
+  documents: {
+    'plan-of-plan': { status: 'empty', path: 'plan-of-plan.md', label: 'Plan of Plan' },
+  },
+  error: null,
+};
+
+export async function loadPipeline() {
+  await fs.mkdir(DOCUMENTS_DIR, { recursive: true });
+  try {
+    const raw = await fs.readFile(PIPELINE_FILE, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return JSON.parse(JSON.stringify(DEFAULT_PIPELINE));
+  }
+}
+
+export async function savePipeline(state) {
+  await fs.mkdir(DOCUMENTS_DIR, { recursive: true });
+  await fs.writeFile(PIPELINE_FILE, JSON.stringify(state, null, 2));
+}
+
+export async function saveDocument(name, content) {
+  await fs.mkdir(DOCUMENTS_DIR, { recursive: true });
+  await fs.writeFile(path.join(DOCUMENTS_DIR, `${name}.md`), content, 'utf8');
+}
+
+export async function loadDocument(name) {
+  try {
+    return await fs.readFile(path.join(DOCUMENTS_DIR, `${name}.md`), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+export async function saveDocPart(index, content) {
+  await fs.mkdir(DOC_PARTS_DIR, { recursive: true });
+  await fs.writeFile(path.join(DOC_PARTS_DIR, `part-${index}.md`), content, 'utf8');
+}
+
+export async function loadDocParts() {
+  try {
+    const files = await fs.readdir(DOC_PARTS_DIR);
+    const parts = files
+      .filter(f => f.startsWith('part-') && f.endsWith('.md'))
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/part-(\d+)/)[1]);
+        const numB = parseInt(b.match(/part-(\d+)/)[1]);
+        return numA - numB;
+      });
+    const contents = await Promise.all(
+      parts.map(f => fs.readFile(path.join(DOC_PARTS_DIR, f), 'utf8'))
+    );
+    return parts.map((f, i) => ({ name: f, content: contents[i] }));
+  } catch {
+    return [];
+  }
+}
+
+// Rationale docs (stored in rationale/ subdirectory)
+export async function saveRationale(slug, content) {
+  await fs.mkdir(RATIONALE_DIR, { recursive: true });
+  await fs.writeFile(path.join(RATIONALE_DIR, `${slug}.md`), content, 'utf8');
+}
+
+export async function loadRationale(slug) {
+  try {
+    return await fs.readFile(path.join(RATIONALE_DIR, `${slug}.md`), 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+export async function resetPipeline() {
+  // Remove subdirectories
+  try { await removeDir(DOC_PARTS_DIR); } catch { /* ok */ }
+  try { await removeDir(RATIONALE_DIR); } catch { /* ok */ }
+  // Remove all doc files
+  const docFiles = ['plan-of-plan.md', 'plan.md', 'generation-plan.md', 'final.md', 'pipeline.json'];
+  for (const f of docFiles) {
+    try { await fs.unlink(path.join(DOCUMENTS_DIR, f)); } catch { /* ok */ }
+  }
+  // Write fresh pipeline
+  await savePipeline(JSON.parse(JSON.stringify(DEFAULT_PIPELINE)));
 }

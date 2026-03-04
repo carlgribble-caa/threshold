@@ -11,6 +11,9 @@ import Toolbar from './components/Toolbar';
 import AddObjectModal from './components/AddObjectModal';
 import GoalDialog from './components/GoalDialog';
 import SuggestionPopup from './components/SuggestionPopup';
+import DocumentTray from './components/DocumentTray';
+import MarkdownEditor from './components/MarkdownEditor';
+import PipelineProgress from './components/PipelineProgress';
 
 const nodeTypes = {
   object: ObjectNode,
@@ -115,6 +118,10 @@ function Flow() {
   const [suggestLoading, setSuggestLoading] = useState(false);
   const [reasoningActive, setReasoningActive] = useState(null); // { operation, label } or null
   const [archives, setArchives] = useState([]);
+  const [showDocTray, setShowDocTray] = useState(false);
+  const [pipeline, setPipeline] = useState(null);
+  const [editorDoc, setEditorDoc] = useState(null); // { name, content }
+
   const { screenToFlowPosition, setCenter, getZoom, getNodes } = useReactFlow();
   const saveTimers = useRef({});
   const metricsTimer = useRef(null);
@@ -258,6 +265,7 @@ function Flow() {
     fetch('/api/goal').then(r => r.json()).then(g => setGoal(g)).catch(() => {});
     fetch('/api/suggestion').then(r => r.json()).then(s => setSuggestion(s)).catch(() => {});
     fetch('/api/sessions/archives').then(r => r.json()).then(setArchives).catch(() => {});
+    fetch('/api/documents/pipeline').then(r => r.json()).then(setPipeline).catch(() => {});
   }, [setNodes, setEdges, fetchMetrics]);
 
   // When dialogue produces new objects, add them to orbit
@@ -509,6 +517,101 @@ function Flow() {
       })
       .catch(() => {});
   }, [reloadCanvas]);
+
+  // Document pipeline handlers
+  const [docObjects, setDocObjects] = useState([]); // objects for ObjectPicker
+  const [docGenerating, setDocGenerating] = useState(false); // rationale generate in progress
+
+  const fetchPipeline = useCallback(() => {
+    fetch('/api/documents/pipeline').then(r => r.json()).then(setPipeline).catch(() => {});
+  }, []);
+
+  const fetchDocObjects = useCallback(() => {
+    fetch('/api/documents/objects/list').then(r => r.json()).then(data => {
+      setDocObjects(data.objects || []);
+    }).catch(() => {});
+  }, []);
+
+  const handleGenerateStep = useCallback((step) => {
+    // Optimistically mark as generating
+    setPipeline(prev => {
+      if (!prev) return prev;
+      const updated = JSON.parse(JSON.stringify(prev));
+      if (updated.documents[step]) updated.documents[step].status = 'generating';
+      return updated;
+    });
+
+    fetch(`/api/documents/generate/${encodeURIComponent(step)}`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        if (data.error) {
+          fetchPipeline();
+        } else {
+          setPipeline(data);
+          // Auto-open the doc after generation
+          handleOpenDocument(step);
+        }
+      })
+      .catch(() => fetchPipeline());
+  }, [fetchPipeline]);
+
+  const handleGenerateRationale = useCallback((docKey) => {
+    setDocGenerating(true);
+    fetch(`/api/documents/generate/${encodeURIComponent(docKey)}`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        setDocGenerating(false);
+        if (!data.error) {
+          setPipeline(data);
+          // Reload the doc content
+          handleOpenDocument(docKey);
+        } else {
+          fetchPipeline();
+        }
+      })
+      .catch(() => { setDocGenerating(false); fetchPipeline(); });
+  }, [fetchPipeline]);
+
+  const handleApproveDocument = useCallback((docKey) => {
+    fetch(`/api/documents/approve/${encodeURIComponent(docKey)}`, { method: 'POST' })
+      .then(r => r.json())
+      .then(data => {
+        setPipeline(data);
+        setEditorDoc(null); // close editor after approve
+      })
+      .catch(() => fetchPipeline());
+  }, [fetchPipeline]);
+
+  const handleOpenDocument = useCallback((name) => {
+    // Fetch objects for picker when opening rationale docs
+    if (name.startsWith('rationale:')) {
+      fetchDocObjects();
+    }
+    fetch(`/api/documents/${encodeURIComponent(name)}`)
+      .then(r => r.json())
+      .then(data => setEditorDoc({ name, content: data.content || '' }))
+      .catch(() => {});
+  }, [fetchDocObjects]);
+
+  const handleSaveDocument = useCallback((name, content) => {
+    fetch(`/api/documents/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    }).then(() => fetchPipeline()).catch(() => {});
+  }, [fetchPipeline]);
+
+  const handleResetPipeline = useCallback(() => {
+    fetch('/api/documents/reset', { method: 'POST' })
+      .then(r => r.json())
+      .then(setPipeline)
+      .catch(() => {});
+    setEditorDoc(null);
+  }, []);
+
+  const handleToolbarDocs = useCallback(() => {
+    setShowDocTray(v => !v);
+  }, []);
 
   // Delete a single node + its edges
   const handleDeleteNode = useCallback((nodeId) => {
@@ -1007,10 +1110,12 @@ function Flow() {
         onSidebar={handleToolbarSidebar}
         onGoal={handleToolbarGoal}
         onSuggest={handleToolbarSuggest}
+        onDocs={handleToolbarDocs}
         connectMode={connectMode}
         dialogueActive={showDialogue}
         goalPopulated={!!goal}
         hasSuggestion={!!suggestion}
+        docsOpen={showDocTray}
       />
 
       <WelcomeHint visible={!showDialogue && nodes.length === 0 && emergingObjects.length === 0} />
@@ -1098,6 +1203,42 @@ function Flow() {
           onDismiss={handleDismiss}
         />
       ))}
+
+      <DocumentTray
+        open={showDocTray}
+        pipeline={pipeline}
+        onGenerate={handleGenerateStep}
+        onOpenDoc={handleOpenDocument}
+        onReset={handleResetPipeline}
+      />
+
+      {showDocTray && <PipelineProgress pipeline={pipeline} />}
+
+      {editorDoc && (() => {
+        const docKey = editorDoc.name;
+        const docMeta = pipeline?.documents?.[docKey];
+        const status = docMeta?.status;
+        const isRationale = docKey.startsWith('rationale:');
+        const canApprove = status === 'ready' || status === 'draft' || (isRationale && status !== 'locked' && status !== 'generating');
+        const canGenerate = isRationale && status !== 'generating' && status !== 'approved';
+        const canInsertObject = isRationale;
+
+        return (
+          <MarkdownEditor
+            docName={docKey}
+            content={editorDoc.content}
+            onSave={handleSaveDocument}
+            onClose={() => setEditorDoc(null)}
+            onApprove={handleApproveDocument}
+            onGenerate={handleGenerateRationale}
+            objects={docObjects}
+            showApprove={canApprove}
+            showInsertObject={canInsertObject}
+            showGenerate={canGenerate}
+            isGenerating={docGenerating}
+          />
+        );
+      })()}
 
       <Sidebar open={sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} nodes={nodes} edges={edges} onReset={handleReset} metrics={metrics} onNodeFocus={handleNodeFocus} onGapClick={handleGapClick} archives={archives} onNewCanvas={handleNewCanvas} onLoadCanvas={handleLoadCanvas} />
 
